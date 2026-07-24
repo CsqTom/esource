@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Diff 行样式 */
+.diff-line-added {
+  background-color: rgba(34, 197, 94, 0.15);
+}
+
+.diff-line-added::before {
+  content: "+";
+  color: #22c55e;
+  margin-right: 8px;
+}
+
+.diff-line-removed {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+.diff-line-removed::before {
+  content: "-";
+  color: #ef4444;
+  margin-right: 8px;
+}
+
+.diff-line-context {
+  background-color: transparent;
+}
+
+.diff-line-context::before {
+  content: " ";
+  margin-right: 8px;
+}
+
+/* 行号样式 */
+.diff-line-number {
+  @apply text-gray-600 text-right select-none px-2 text-xs;
+  min-width: 40px;
+}
+
+/* 文件状态颜色 */
+.file-status-added {
+  @apply text-green-400;
+}
+
+.file-status-modified {
+  @apply text-blue-400;
+}
+
+.file-status-deleted {
+  @apply text-red-400;
+}
+
+.file-status-conflicted {
+  @apply text-yellow-400;
+}
+
+.file-status-untracked {
+  @apply text-gray-400;
+}
+
+/* 过渡动画 */
+.fade-in {
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 选中高亮 */
+.selected-file {
+  @apply bg-blue-900/30 border-l-2 border-blue-500;
+}
