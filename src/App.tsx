@@ -13,7 +13,7 @@ import { StashPanel } from './components/stash/StashPanel';
 import { RemotePanel } from './components/remote/RemotePanel';
 import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
-import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode, History, Tag, Archive, Globe } from 'lucide-react';
+import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode } from 'lucide-react';
 
 type ViewMode = 'diff' | 'log' | 'tags' | 'stash' | 'remote' | 'branch';
 
@@ -39,7 +39,6 @@ export default function App() {
     staleTime: 30_000, placeholderData: (prev) => prev,
   });
 
-  // 判断文件是否为未跟踪：检查 status.not_added 或 status.files 中的 working_dir
   const isSelectedFileUntracked = !!(selectedFile && (
     status?.not_added?.includes(selectedFile) ||
     status?.files?.some(f => f.path === selectedFile && f.working_dir?.trim() === '?')
@@ -54,8 +53,7 @@ export default function App() {
       if (isImage) { return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, true); }
       return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, false);
     },
-    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked,
-    staleTime: 10_000,
+    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked, staleTime: 10_000,
   });
 
   const fileChanges: FileChangeItem[] = (() => {
@@ -127,7 +125,9 @@ export default function App() {
         onAddRepo={handleAddRepo} onCloneRepo={() => setShowCloneDialog(true)} onInitRepo={handleInitRepo} onRemoveRepo={handleRemoveRepo}
         onPull={pullMutation.mutate} onPush={pushMutation.mutate} onFetch={fetchMutation.mutate}
         onToggleBranch={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')}
-        isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending} />
+        isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending}
+        activeView={activeView} onViewChange={setActiveView} />
+
       <div className="flex-1 flex overflow-hidden">
         <div className="w-60 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }} onRemoveRepo={handleRemoveRepo} />
@@ -154,15 +154,6 @@ export default function App() {
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">{renderView()}</div>
       </div>
-      <div className="h-10 bg-gray-800 border-t border-gray-700 flex items-center px-2 gap-1 flex-shrink-0">
-        <ToolbarButton icon={<GitBranch className="w-4 h-4" />} label="分支" active={activeView === 'branch'} onClick={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')} />
-        <ToolbarButton icon={<History className="w-4 h-4" />} label="日志" active={activeView === 'log'} onClick={() => setActiveView(activeView === 'log' ? 'diff' : 'log')} />
-        <ToolbarButton icon={<Tag className="w-4 h-4" />} label="标签" active={activeView === 'tags'} onClick={() => setActiveView(activeView === 'tags' ? 'diff' : 'tags')} />
-        <ToolbarButton icon={<Archive className="w-4 h-4" />} label="Stash" active={activeView === 'stash'} onClick={() => setActiveView(activeView === 'stash' ? 'diff' : 'stash')} />
-        <ToolbarButton icon={<Globe className="w-4 h-4" />} label="远程" active={activeView === 'remote'} onClick={() => setActiveView(activeView === 'remote' ? 'diff' : 'remote')} />
-        <div className="flex-1" />
-        <span className="text-xs text-gray-500">{activeRepo.name} / {activeRepo.currentBranch}</span>
-      </div>
       <StatusBar repoPath={activeRepo.path} currentBranch={activeRepo.currentBranch} ahead={activeRepo.ahead} behind={activeRepo.behind} isClean={activeRepo.isClean} />
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} onClone={handleClone} />}
     </div>
@@ -186,14 +177,9 @@ export default function App() {
         }
         return (
           <div className="flex-1 flex items-center justify-center text-gray-500">
-            <div className="text-center"><GitBranch className="w-12 h-12 mx-auto mb-2 opacity-50" /><p>选择一个文件查看变更内容</p><p className="text-xs mt-2">或使用底部工具栏查看其他视图</p></div>
+            <div className="text-center"><GitBranch className="w-12 h-12 mx-auto mb-2 opacity-50" /><p>选择一个文件查看变更内容</p></div>
           </div>
         );
     }
   }
-}
-
-interface ToolbarButtonProps { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; }
-function ToolbarButton({ icon, label, active, onClick }: ToolbarButtonProps) {
-  return <button onClick={onClick} className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}>{icon}{label}</button>;
 }
