@@ -16,7 +16,6 @@ function saveStore(records: RepoRecord[]): void {
   fs.writeFileSync(STORE_PATH, JSON.stringify(records, null, 2), 'utf-8');
 }
 function getGit(repoPath: string): SimpleGit { return simpleGit(repoPath); }
-
 function serializeStatus(summary: any): SerializedStatus {
   return {
     current: summary.current || '', tracking: summary.tracking || '',
@@ -73,7 +72,6 @@ export function registerRepoHandlers() {
     const records = loadStore(); records.push(record); saveStore(records);
     return { id: record.id, name: record.name, path: record.path, currentBranch: 'master', isClean: true, ahead: 0, behind: 0, remoteUrl: '', addedAt: record.addedAt };
   });
-
   ipcMain.handle('workdir:status', async (_event, repoPath: string): Promise<SerializedStatus> => { const git = getGit(repoPath); return serializeStatus(await git.status()); });
   ipcMain.handle('workdir:stage', async (_event, repoPath: string, files: string[]): Promise<void> => { await getGit(repoPath).add(files); });
   ipcMain.handle('workdir:unstage', async (_event, repoPath: string, files: string[]): Promise<void> => { await getGit(repoPath).reset(['--', ...files]); });
@@ -93,8 +91,12 @@ export function registerRepoHandlers() {
   ipcMain.handle('workdir:diff', async (_event, repoPath: string, file: string, staged: boolean = false): Promise<SerializedDiff> => {
     return parseDiff(await getGit(repoPath).diff(staged ? ['--cached', file] : [file]), file);
   });
-
-  // ── 行级操作 ──
+  ipcMain.handle('workdir:readFile', async (_event, repoPath: string, file: string, asBase64: boolean = false): Promise<string> => {
+    const fullPath = path.join(repoPath, file);
+    if (!fs.existsSync(fullPath)) throw new Error('文件不存在: ' + file);
+    if (asBase64) { return fs.readFileSync(fullPath).toString('base64'); }
+    return fs.readFileSync(fullPath, 'utf-8');
+  });
   ipcMain.handle('workdir:stageLines', async (_event, repoPath: string, file: string, selections: SelectionRange[]): Promise<void> => {
     const git = getGit(repoPath); const diffStr = await git.diff([file]); const patch = buildPartialPatch(file, diffStr, selections);
     if (patch) await applyPatchFromFile(git, patch, ['--cached']);
@@ -107,11 +109,9 @@ export function registerRepoHandlers() {
     const git = getGit(repoPath); const diffStr = await git.diff(['-R', file]); const patch = buildPartialPatch(file, diffStr, selections);
     if (patch) await applyPatchFromFile(git, patch, []);
   });
-
   ipcMain.handle('workdir:commit', async (_event, repoPath: string, message: string): Promise<void> => {
     if (!message?.trim()) throw new Error('提交信息不能为空'); await getGit(repoPath).commit(message);
   });
-
   ipcMain.handle('branch:list', async (_event, repoPath: string): Promise<SerializedBranch[]> => {
     const git = getGit(repoPath); const local = await git.branch(); const remote = await git.branch(['-r']); const branches: SerializedBranch[] = [];
     for (const [name, info] of Object.entries(local.branches)) branches.push({ name, current: info.current, commit: info.commit, label: info.label, remote: false });
@@ -122,7 +122,6 @@ export function registerRepoHandlers() {
   ipcMain.handle('branch:create', async (_event, repoPath: string, name: string, base?: string): Promise<void> => { await getGit(repoPath).branch([name, base || 'HEAD']); });
   ipcMain.handle('branch:delete', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).branch(['-D', name]); });
   ipcMain.handle('branch:merge', async (_event, repoPath: string, branch: string): Promise<string> => { return (await getGit(repoPath).merge([branch]))?.result || '合并成功'; });
-
   ipcMain.handle('remote:list', async (_event, repoPath: string): Promise<SerializedRemote[]> => { return (await getGit(repoPath).getRemotes(true)).map((r) => ({ name: r.name, refs: { fetch: r.refs?.fetch || '', push: r.refs?.push || '' } })); });
   ipcMain.handle('remote:push', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => { await getGit(repoPath).push(remote || 'origin', branch || 'HEAD'); });
   ipcMain.handle('remote:pull', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => { await getGit(repoPath).pull(remote || 'origin', branch || 'HEAD'); });
@@ -131,7 +130,6 @@ export function registerRepoHandlers() {
   ipcMain.handle('remote:remove', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).raw(['remote', 'remove', name]); });
   ipcMain.handle('remote:rename', async (_event, repoPath: string, oldName: string, newName: string): Promise<void> => { await getGit(repoPath).raw(['remote', 'rename', oldName, newName]); });
   ipcMain.handle('remote:setUrl', async (_event, repoPath: string, name: string, url: string, push?: boolean): Promise<void> => { await getGit(repoPath).raw(['remote', ...(push ? ['set-url', '--push', name, url] : ['set-url', name, url])]); });
-
   ipcMain.handle('log:list', async (_event, repoPath: string, options?: LogQueryOptions): Promise<SerializedCommit[]> => {
     const opts: string[] = [`--max-count=${options?.maxCount || 50}`]; if (options?.branch) opts.push(options.branch); if (options?.author) opts.push(`--author=${options.author}`); if (options?.since) opts.push(`--since=${options.since}`);
     opts.push('--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D', '--all'); return parseLogOutput(await getGit(repoPath).raw(['log', ...opts]));
@@ -147,7 +145,6 @@ export function registerRepoHandlers() {
     const changedFiles = files.split('\n').filter(Boolean).map((line) => { const [status, ...pathParts] = line.trim().split('\t'); return { status: status || 'M', path: pathParts.join('/') || '' }; });
     return { hash: parts[0] || '', author: parts[1] || '', authorEmail: parts[2] || '', date: new Date(parts[3] || '').getTime(), message: parts[4] || '', body: parts[5] || '', refs: parts[6] ? parts[6].split(', ').filter(Boolean) : [], changedFiles };
   });
-
   ipcMain.handle('tag:list', async (_event, repoPath: string): Promise<SerializedTag[]> => {
     const git = getGit(repoPath); const result = await git.tags(); const tags: SerializedTag[] = [];
     for (const name of result.all) {
@@ -158,7 +155,6 @@ export function registerRepoHandlers() {
   });
   ipcMain.handle('tag:create', async (_event, repoPath: string, name: string, message?: string): Promise<void> => { const git = getGit(repoPath); if (message) await git.raw(['tag', '-a', name, '-m', message]); else await git.raw(['tag', name]); });
   ipcMain.handle('tag:delete', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).raw(['tag', '-d', name]); });
-
   ipcMain.handle('stash:list', async (_event, repoPath: string): Promise<SerializedStash[]> => {
     const result = await getGit(repoPath).raw(['stash', 'list', '--format=%gd|%gs|%ai']);
     if (!result.trim()) return [];
@@ -205,64 +201,37 @@ function parseDiff(diffStr: string, filePath: string): SerializedDiff {
   if (current) hunks.push(current);
   return { file: filePath, hunks, added: hunks.reduce((s, h) => s + h.lines.filter((l) => l.type === 'added').length, 0), removed: hunks.reduce((s, h) => s + h.lines.filter((l) => l.type === 'removed').length, 0) };
 }
-
 async function applyPatchFromFile(git: SimpleGit, patch: string, options: string[]): Promise<void> {
   const tmpDir = path.join(os.tmpdir(), 'esource-patch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
   const patchFile = path.join(tmpDir, 'patch.diff');
   try {
     fs.mkdirSync(tmpDir, { recursive: true }); fs.writeFileSync(patchFile, patch, 'utf-8');
-    console.log('=== applyPatchFromFile ===\n命令: git apply --unidiff-zero ' + options.join(' ') + ' ' + patchFile + '\npatch 内容:\n' + patch + '===========================');
     await git.raw(['apply', '--unidiff-zero', ...options, patchFile]);
   } finally { try { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} }
 }
 
-/**
- * 构建仅包含选中行的部分补丁。
- * 不扩展上下文行，直接使用选中行。依赖 --unidiff-zero 允许零上下文。
- * 行号计算：从 @@ 头中的起始行号 + 选中行在 hunk 中的偏移量。
- */
 function buildPartialPatch(file: string, diffText: string, selections: SelectionRange[]): string {
   if (!selections.length) return '';
-
   const hunks: { header: string; content: string[] }[] = [];
   let current: { header: string; content: string[] } | null = null;
   for (const line of diffText.split('\n')) {
     if (line.startsWith('@@')) { current = { header: line, content: [] }; hunks.push(current); }
     else if (current && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') || line === '')) { current.content.push(line === '' ? ' ' : line); }
   }
-
   const patchLines: string[] = [`--- a/${file}`, `+++ b/${file}`];
-
   for (const sel of selections) {
     if (sel.hunkIndex >= hunks.length) continue;
-    const hunk = hunks[sel.hunkIndex];
-    const m = hunk.header.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
-    if (!m) continue;
-    const rawOldStart = parseInt(m[1], 10), rawNewStart = parseInt(m[3], 10);
-
-    const startIdx = Math.max(0, sel.startLine);
-    const endIdx = Math.min(hunk.content.length - 1, sel.endLine);
-    if (startIdx > endIdx) continue;
-    const subLines = hunk.content.slice(startIdx, endIdx + 1);
-
+    const hunk = hunks[sel.hunkIndex]; const m = hunk.header.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
+    if (!m) continue; const rawOldStart = parseInt(m[1], 10), rawNewStart = parseInt(m[3], 10);
+    const startIdx = Math.max(0, sel.startLine); const endIdx = Math.min(hunk.content.length - 1, sel.endLine);
+    if (startIdx > endIdx) continue; const subLines = hunk.content.slice(startIdx, endIdx + 1);
     if (!subLines.some(l => l.startsWith('+') || l.startsWith('-'))) continue;
-
     let oldOff = 0, newOff = 0;
-    for (let i = 0; i < startIdx; i++) {
-      const l = hunk.content[i];
-      if (l.startsWith(' ') || l.startsWith('-')) oldOff++;
-      if (l.startsWith(' ') || l.startsWith('+')) newOff++;
-    }
-
+    for (let i = 0; i < startIdx; i++) { const l = hunk.content[i]; if (l.startsWith(' ') || l.startsWith('-')) oldOff++; if (l.startsWith(' ') || l.startsWith('+')) newOff++; }
     let oldCnt = 0, newCnt = 0;
-    for (const l of subLines) {
-      if (l.startsWith(' ') || l.startsWith('-')) oldCnt++;
-      if (l.startsWith(' ') || l.startsWith('+')) newCnt++;
-    }
-
+    for (const l of subLines) { if (l.startsWith(' ') || l.startsWith('-')) oldCnt++; if (l.startsWith(' ') || l.startsWith('+')) newCnt++; }
     patchLines.push(`@@ -${rawOldStart + oldOff},${oldCnt} +${rawNewStart + newOff},${newCnt} @@`);
     patchLines.push(...subLines);
   }
-
   return patchLines.join('\n') + '\n';
 }

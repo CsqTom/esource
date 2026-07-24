@@ -1,22 +1,19 @@
 import { useState, useCallback, useRef } from 'react';
 import { SerializedDiff, SelectionRange } from '../../types';
-import {
-  ChevronDown, ChevronRight, Plus, RotateCcw, FileCode, MousePointer2, AlertCircle, FilePlus,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RotateCcw, FileCode, MousePointer2, AlertCircle } from 'lucide-react';
+import { FileViewer } from '../viewer/FileViewer';
 
 interface DiffUnstageViewProps {
   diff: SerializedDiff;
-  /** 文件是否为未跟踪（全新文件） */
   isUntracked?: boolean;
-  /** 未跟踪文件的完整内容 */
   untrackedContent?: string;
+  untrackedContentBase64?: string;
   loading?: boolean;
   repoPath?: string;
   onActionComplete?: () => void;
 }
 
-/** 未暂存文件的差异查看器，支持"暂存"和"丢弃"操作 */
-export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, repoPath, onActionComplete }: DiffUnstageViewProps) {
+export function DiffUnstageView({ diff, isUntracked, untrackedContent, untrackedContentBase64, loading, repoPath, onActionComplete }: DiffUnstageViewProps) {
   const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set());
   const [selectedLines, setSelectedLines] = useState<Map<string, Set<number>>>(new Map());
   const [lastClickedLine, setLastClickedLine] = useState<{ hunkIdx: number; lineIdx: number } | null>(null);
@@ -74,24 +71,17 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, 
   }, [selectedLines]);
 
   const safeCall = useCallback(async (label: string, fn: () => Promise<void>) => {
-    try {
-      setErrorMsg(null); setActionLoading(true); await fn();
-      clearSelection(); onActionComplete?.();
-    } catch (err: any) {
-      const msg = err?.message || String(err); setErrorMsg(msg);
-      console.error(`[${label}] 失败:`, msg);
-    } finally { try { setActionLoading(false); } catch {} }
+    try { setErrorMsg(null); setActionLoading(true); await fn(); clearSelection(); onActionComplete?.(); }
+    catch (err: any) { const msg = err?.message || String(err); setErrorMsg(msg); console.error(`[${label}] 失败:`, msg); }
+    finally { try { setActionLoading(false); } catch {} }
   }, [clearSelection, onActionComplete]);
 
   const handleStage = useCallback(() => {
     if (!repoPath || !diff) return;
     safeCall('stage', async () => {
       const selections = getSelections(); const file = diff.file;
-      if (selections.length > 0) {
-        await window.electronAPI.workdir.stageLines(repoPath, file, selections);
-      } else {
-        await window.electronAPI.workdir.stage(repoPath, [file]);
-      }
+      if (selections.length > 0) { await window.electronAPI.workdir.stageLines(repoPath, file, selections); }
+      else { await window.electronAPI.workdir.stage(repoPath, [file]); }
     });
   }, [repoPath, diff, getSelections, safeCall]);
 
@@ -99,27 +89,20 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, 
     if (!repoPath || !diff) return;
     safeCall('discard', async () => {
       const selections = getSelections(); const file = diff.file;
-      if (selections.length > 0) {
-        await window.electronAPI.workdir.discardLines(repoPath, file, selections);
-      } else {
-        await window.electronAPI.workdir.discard(repoPath, [file]);
-      }
+      if (selections.length > 0) { await window.electronAPI.workdir.discardLines(repoPath, file, selections); }
+      else { await window.electronAPI.workdir.discard(repoPath, [file]); }
     });
   }, [repoPath, diff, getSelections, safeCall]);
 
   const handleStageHunk = useCallback((hunkIdx: number) => {
     if (!repoPath || !diff) return;
-    safeCall('stageHunk', async () => {
-      await window.electronAPI.workdir.stageHunk(repoPath, diff.file, hunkIdx);
-    });
+    safeCall('stageHunk', async () => { await window.electronAPI.workdir.stageHunk(repoPath, diff.file, hunkIdx); });
   }, [repoPath, diff, safeCall]);
 
   const handleDiscardHunk = useCallback((hunkIdx: number) => {
     if (!repoPath || !diff) return;
     safeCall('discardHunk', async () => {
-      await window.electronAPI.workdir.discardLines(repoPath, diff.file, [
-        { hunkIndex: hunkIdx, startLine: 0, endLine: diff.hunks[hunkIdx].lines.length - 1 },
-      ]);
+      await window.electronAPI.workdir.discardLines(repoPath, diff.file, [{ hunkIndex: hunkIdx, startLine: 0, endLine: diff.hunks[hunkIdx].lines.length - 1 }]);
     });
   }, [repoPath, diff, safeCall]);
 
@@ -129,12 +112,12 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, 
 
   if (loading) return (<div className="flex-1 flex items-center justify-center"><div className="text-gray-500">加载中...</div></div>);
 
-  // ── 未跟踪文件：显示完整内容，仅允许"暂存全部" ──
+  // ── 未跟踪文件：使用 FileViewer 显示内容 ──
   if (isUntracked) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-          <FilePlus className="w-4 h-4 text-green-400" />
+          <FileCode className="w-4 h-4 text-green-400" />
           <span className="text-sm font-medium text-gray-200">{diff.file}</span>
           <span className="text-xs bg-green-900/40 text-green-300 px-1.5 py-0.5 rounded ml-2">未跟踪</span>
           <div className="ml-auto flex items-center gap-1">
@@ -145,24 +128,17 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, 
             <span className="text-xs text-gray-500">（新文件仅支持整文件暂存）</span>
           </div>
         </div>
-
         {errorMsg && (
           <div className="flex items-center gap-2 px-4 py-1.5 bg-red-900/40 border-b border-red-700/50 text-xs text-red-300">
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /><span className="flex-1 truncate">{errorMsg}</span>
             <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-200">✕</button>
           </div>
         )}
-
-        <div ref={containerRef} className="flex-1 overflow-y-auto">
-          <pre className="font-mono text-xs leading-relaxed p-4 text-gray-200 whitespace-pre-wrap">
-            {untrackedContent || '（文件内容为空）'}
-          </pre>
-        </div>
+        <FileViewer filePath={diff.file} repoPath={repoPath || ''} content={untrackedContent} contentBase64={untrackedContentBase64} />
       </div>
     );
   }
 
-  // ── 普通未暂存文件：显示 diff ──
   if (!diff || !diff.hunks || diff.hunks.length === 0) return (
     <div className="flex-1 flex items-center justify-center text-gray-500">
       <div className="text-center"><FileCode className="w-12 h-12 mx-auto mb-2 opacity-50" /><p>没有差异内容</p></div>
@@ -216,16 +192,11 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, loading, 
                 </span>
                 <div className="flex items-center gap-0.5 ml-2 opacity-0 hover:opacity-100 transition-opacity">
                   <button onClick={(e) => { e.stopPropagation(); handleStageHunk(hunkIdx); }}
-                    className="p-1 hover:bg-green-900/30 rounded text-green-400" title="暂存此块">
-                    <Plus className="w-3 h-3" />
-                  </button>
+                    className="p-1 hover:bg-green-900/30 rounded text-green-400" title="暂存此块"><Plus className="w-3 h-3" /></button>
                   <button onClick={(e) => { e.stopPropagation(); handleDiscardHunk(hunkIdx); }}
-                    className="p-1 hover:bg-red-900/30 rounded text-red-400" title="丢弃此块">
-                    <RotateCcw className="w-3 h-3" />
-                  </button>
+                    className="p-1 hover:bg-red-900/30 rounded text-red-400" title="丢弃此块"><RotateCcw className="w-3 h-3" /></button>
                 </div>
               </div>
-
               {!collapsedHunks.has(hunkIdx) && (
                 <div className="relative">
                   <div className="flex items-center gap-2 px-4 py-0.5 bg-gray-800/20 border-b border-gray-700/30">

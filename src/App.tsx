@@ -30,7 +30,6 @@ export default function App() {
   const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null;
 
   const { data: status } = useQuery({ queryKey: ['status', activeRepo?.path], queryFn: () => window.electronAPI.workdir.status(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 2_000, refetchInterval: 5_000 });
-
   const { data: branches = [] } = useQuery({ queryKey: ['branches', activeRepo?.path], queryFn: () => window.electronAPI.branch.list(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 5_000 });
 
   const { data: diff, isFetching: diffLoading } = useQuery({
@@ -40,21 +39,34 @@ export default function App() {
     staleTime: 30_000, placeholderData: (prev) => prev,
   });
 
-  const isSelectedFileUntracked = !!(selectedFile && status?.files?.some(f => f.path === selectedFile && f.working_dir?.trim() === '?'));
+  // 判断文件是否为未跟踪：检查 status.not_added 或 status.files 中的 working_dir
+  const isSelectedFileUntracked = !!(selectedFile && (
+    status?.not_added?.includes(selectedFile) ||
+    status?.files?.some(f => f.path === selectedFile && f.working_dir?.trim() === '?')
+  ));
 
-  // ── 文件变更列表：使用 status.files 精确判断每个文件的状态 ──
+  const ext = selectedFile?.split('.').pop()?.toLowerCase() || '';
+  const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
+  const { data: untrackedContent } = useQuery({
+    queryKey: ['fileContent', activeRepo?.path, selectedFile, isImage],
+    queryFn: async () => {
+      if (!selectedFile || !activeRepo?.path) return '';
+      if (isImage) { return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, true); }
+      return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, false);
+    },
+    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked,
+    staleTime: 10_000,
+  });
+
   const fileChanges: FileChangeItem[] = (() => {
     if (!status || !status.files) return [];
     const items: FileChangeItem[] = [];
     for (const f of status.files) {
-      const idx = (f.index || ' ').trim();
-      const wd = (f.working_dir || ' ').trim();
+      const idx = (f.index || ' ').trim(); const wd = (f.working_dir || ' ').trim();
       const isStaged = idx === 'M' || idx === 'A' || idx === 'D' || idx === 'R' || idx === 'C';
       const isUnstaged = wd === 'M' || wd === 'D' || wd === '?';
-      const isUntracked = wd === '?';
-      if (isUntracked) {
-        items.push({ path: f.path, status: 'untracked', staged: false });
-      } else {
+      if (wd === '?') { items.push({ path: f.path, status: 'untracked', staged: false }); }
+      else {
         if (isStaged) {
           if (idx === 'A') items.push({ path: f.path, status: 'added', staged: true });
           else if (idx === 'D') items.push({ path: f.path, status: 'deleted', staged: true });
@@ -69,15 +81,9 @@ export default function App() {
     return items;
   })();
 
-  const filteredFiles = fileChanges.filter((f) => {
-    if (activeTab === 'staged') return f.staged;
-    return !f.staged;
-  });
+  const filteredFiles = fileChanges.filter((f) => { if (activeTab === 'staged') return f.staged; return !f.staged; });
 
-  const checkoutMutation = useMutation({
-    mutationFn: (branchName: string) => window.electronAPI.branch.checkout(activeRepo!.path, branchName),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['branches', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); },
-  });
+  const checkoutMutation = useMutation({ mutationFn: (branchName: string) => window.electronAPI.branch.checkout(activeRepo!.path, branchName), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['branches', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); } });
   const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); setSelectedFile(null); } });
@@ -122,12 +128,10 @@ export default function App() {
         onPull={pullMutation.mutate} onPush={pushMutation.mutate} onFetch={fetchMutation.mutate}
         onToggleBranch={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')}
         isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending} />
-
       <div className="flex-1 flex overflow-hidden">
         <div className="w-60 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }} onRemoveRepo={handleRemoveRepo} />
         </div>
-
         <div className="w-96 border-r border-gray-700 flex flex-col flex-shrink-0">
           <div className="flex border-b border-gray-700">
             <button onClick={() => setActiveTab('staged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'staged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>已暂存 ({fileChanges.filter((f) => f.staged).length})</button>
@@ -148,10 +152,8 @@ export default function App() {
             </div>
           </div>
         </div>
-
         <div className="flex-1 flex flex-col overflow-hidden">{renderView()}</div>
       </div>
-
       <div className="h-10 bg-gray-800 border-t border-gray-700 flex items-center px-2 gap-1 flex-shrink-0">
         <ToolbarButton icon={<GitBranch className="w-4 h-4" />} label="分支" active={activeView === 'branch'} onClick={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')} />
         <ToolbarButton icon={<History className="w-4 h-4" />} label="日志" active={activeView === 'log'} onClick={() => setActiveView(activeView === 'log' ? 'diff' : 'log')} />
@@ -161,7 +163,6 @@ export default function App() {
         <div className="flex-1" />
         <span className="text-xs text-gray-500">{activeRepo.name} / {activeRepo.currentBranch}</span>
       </div>
-
       <StatusBar repoPath={activeRepo.path} currentBranch={activeRepo.currentBranch} ahead={activeRepo.ahead} behind={activeRepo.behind} isClean={activeRepo.isClean} />
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} onClone={handleClone} />}
     </div>
@@ -180,7 +181,7 @@ export default function App() {
           if (activeTab === 'staged') {
             return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
           } else {
-            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
+            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
           }
         }
         return (
