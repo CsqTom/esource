@@ -76,6 +76,27 @@ interface SerializedCommit {
   refs: string[];
 }
 
+interface SerializedCommitDetail extends SerializedCommit {
+  changedFiles: { status: string; path: string }[];
+}
+
+interface SerializedTag {
+  name: string;
+  commit: string;
+  label: string;
+  date: number;
+  annotated: boolean;
+  message?: string;
+}
+
+interface SerializedStash {
+  id: string;
+  index: number;
+  message: string;
+  branch: string;
+  date: number;
+}
+
 interface SerializedRemote {
   name: string;
   refs: {
@@ -89,4 +110,11 @@ interface LogQueryOptions {
   branch?: string;
   since?: string;
   author?: string;
+  search?: string;
+}
+
+interface SelectionRange {
+  hunkIndex: number;
+  startLine: number;
+  endLine: number;
 }

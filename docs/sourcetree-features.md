@@ -304,7 +304,7 @@ interface ElectronAPI {
 
 ## 七、阶段规划
 
-### Phase 1：基础框架 + 仓库管理 + 文件变更查看
+### Phase 1：基础框架 + 仓库管理 + 文件变更查看 ✅ 完成
 - [x] Electron + React + Vite 项目脚手架
 - [x] TanStack Query 集成
 - [x] 仓库列表管理（添加/删除/克隆）
@@ -313,18 +313,22 @@ interface ElectronAPI {
 - [x] 文件暂存/取消暂存/恢复
 - [x] Diff 查看（基础行级差异）
 
-### Phase 2：提交 + 远程操作 + 分支管理
-- [ ] Commit 提交
-- [ ] Push/Pull/Fetch
-- [ ] 分支创建/删除/合并
-- [ ] 块暂存/取消暂存
-- [ ] 提交历史查看
+### Phase 2：提交 + 远程操作 + 分支管理 + 高级功能 ✅ 完成
+- [x] Commit 提交
+- [x] Push/Pull/Fetch
+- [x] 分支创建/删除/合并
+- [x] 块暂存/取消暂存
+- [x] 提交历史查看（LogViewer）
+- [x] 标签管理（TagPanel）
+- [x] Stash 暂存管理（StashPanel）
+- [x] 远程仓库管理（RemotePanel）
 
-### Phase 3：进阶功能
+### Phase 3：进阶功能 📋 待实现
 - [ ] 交互式 Rebase
 - [ ] Cherry Pick
-- [ ] Stash
-- [ ] 标签管理
+- [ ] Stash 暂存差异查看
+- [ ] 标签管理（远程标签推送）
 - [ ] 冲突解决
 - [ ] Blame
-- [ ] 搜索/过滤
+- [ ] 搜索/过滤 Log（增强）
+- [ ] 子模块管理

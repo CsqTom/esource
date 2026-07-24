@@ -78,6 +78,35 @@ export interface SerializedCommit {
   refs: string[];
 }
 
+export interface SerializedCommitDetail extends SerializedCommit {
+  changedFiles: { status: string; path: string }[];
+}
+
+// ── 标签类型 ──
+export interface SerializedTag {
+  name: string;
+  commit: string;
+  label: string;
+  date: number;
+  annotated: boolean;
+  message?: string;
+}
+
+// ── Stash 类型 ──
+export interface SerializedStash {
+  id: string;
+  index: number;
+  message: string;
+  branch: string;
+  date: number;
+}
+
+export interface SelectionRange {
+  hunkIndex: number;
+  startLine: number;
+  endLine: number;
+}
+
 // ── 序列化后的远程仓库类型 ──
 export interface SerializedRemote {
   name: string;
@@ -93,6 +122,7 @@ export interface LogQueryOptions {
   branch?: string;
   since?: string;
   author?: string;
+  search?: string;
 }
 
 // ── 文件变更项（业务层组装后的类型） ──
@@ -129,6 +159,9 @@ export interface ElectronAPI {
     stageHunk(repoPath: string, file: string, hunkIndex: number): Promise<void>;
     unstageHunk(repoPath: string, file: string, hunkIndex: number): Promise<void>;
     diff(repoPath: string, file: string, staged?: boolean): Promise<SerializedDiff>;
+    stageLines(repoPath: string, file: string, selections: SelectionRange[]): Promise<void>;
+    unstageLines(repoPath: string, file: string, selections: SelectionRange[]): Promise<void>;
+    discardLines(repoPath: string, file: string, selections: SelectionRange[]): Promise<void>;
     commit(repoPath: string, message: string): Promise<void>;
   };
   remote: {
@@ -136,9 +169,27 @@ export interface ElectronAPI {
     push(repoPath: string, remote?: string, branch?: string): Promise<void>;
     pull(repoPath: string, remote?: string, branch?: string): Promise<void>;
     fetch(repoPath: string, remote?: string): Promise<void>;
+    add(repoPath: string, name: string, url: string): Promise<void>;
+    remove(repoPath: string, name: string): Promise<void>;
+    rename(repoPath: string, oldName: string, newName: string): Promise<void>;
+    setUrl(repoPath: string, name: string, url: string, push?: boolean): Promise<void>;
   };
   log: {
     list(repoPath: string, options?: LogQueryOptions): Promise<SerializedCommit[]>;
+    raw(repoPath: string, options?: LogQueryOptions): Promise<string>;
+    detail(repoPath: string, hash: string): Promise<SerializedCommitDetail>;
+  };
+  tag: {
+    list(repoPath: string): Promise<SerializedTag[]>;
+    create(repoPath: string, name: string, message?: string): Promise<void>;
+    delete(repoPath: string, name: string): Promise<void>;
+  };
+  stash: {
+    list(repoPath: string): Promise<SerializedStash[]>;
+    save(repoPath: string, message?: string): Promise<void>;
+    pop(repoPath: string, index?: number): Promise<void>;
+    apply(repoPath: string, index: number): Promise<void>;
+    drop(repoPath: string, index: number): Promise<void>;
   };
 }
 

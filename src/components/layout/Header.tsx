@@ -52,12 +52,6 @@ export function Header({
 
   return (
     <header className="h-12 bg-gray-800 border-b border-gray-700 flex items-center px-4 gap-3 flex-shrink-0">
-      {/* Logo */}
-      <div className="flex items-center gap-2 text-blue-400 font-bold mr-2">
-        <FileCode className="w-5 h-5" />
-        <span className="text-sm">eSource</span>
-      </div>
-
       {/* 仓库选择器 */}
       <div className="relative">
         <button
