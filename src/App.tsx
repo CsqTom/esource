@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SerializedRepository, FileChangeItem } from './types';
 import { RepoList } from './components/repo/RepoList';
 import { CloneDialog } from './components/repo/CloneDialog';
+import { PushDialog } from './components/remote/PushDialog';
 import { BranchPanel } from './components/branch/BranchPanel';
 import { FileList } from './components/workdir/FileList';
 import { DiffStageView } from './components/diff/DiffStageView';
@@ -32,6 +33,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'staged' | 'unstaged'>('unstaged');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showPullDialog, setShowPullDialog] = useState(false);
+  const [showPushDialog, setShowPushDialog] = useState(false);
 
   const { data: repos = [], isLoading: reposLoading } = useQuery({ queryKey: ['repos'], queryFn: () => window.electronAPI.repo.list(), staleTime: 3_000 });
   const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null;
@@ -110,7 +112,13 @@ export default function App() {
   const invalidateRepoState = () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); };
   // 拉取：成功后自动关闭弹窗并刷新状态；失败时保留弹窗显示错误
   const pullMutation = useMutation({ mutationFn: () => window.electronAPI.remote.pull(activeRepo!.path), onSuccess: () => { invalidateRepoState(); setShowPullDialog(false); }, onError: (err) => console.error('拉取失败:', err) });
-  const pushMutation = useMutation({ mutationFn: () => window.electronAPI.remote.push(activeRepo!.path), onSuccess: invalidateRepoState, onError: (err) => console.error('推送失败:', err) });
+  // 推送：通过弹窗选择远程和分支，成功自动关闭，失败显示错误
+  const pushMutation = useMutation({
+    mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.push(activeRepo!.path, remote, branch),
+    onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); },
+  });
+  const handlePush = useCallback((remote: string, branch: string) => pushMutation.mutate({ remote, branch }), [pushMutation]);
+  const pushError = pushMutation.isError ? String(pushMutation.error?.message || pushMutation.error || '').replace(/^Error: Error invoking remote method 'remote:push': Error: /, '') : null;
   const fetchMutation = useMutation({ mutationFn: () => window.electronAPI.remote.fetch(activeRepo!.path), onSuccess: invalidateRepoState, onError: (err) => console.error('获取失败:', err) });
 
   const handleAddRepo = useCallback(async () => { try { await window.electronAPI.repo.add(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('添加仓库失败:', err); } }, [queryClient]);
@@ -149,7 +157,7 @@ export default function App() {
     <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
       <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }}
         onAddRepo={handleAddRepo} onCloneRepo={() => setShowCloneDialog(true)} onInitRepo={handleInitRepo} onRemoveRepo={handleRemoveRepo}
-        onPull={() => { setShowPullDialog(true); pullMutation.mutate(); }} onPush={pushMutation.mutate} onFetch={fetchMutation.mutate}
+        onPull={() => { setShowPullDialog(true); pullMutation.mutate(); }} onPush={() => setShowPushDialog(true)} onFetch={fetchMutation.mutate}
         onToggleBranch={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')}
         isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending}
         activeView={activeView} onViewChange={setActiveView}
@@ -200,6 +208,17 @@ export default function App() {
       </div>
       <StatusBar repoPath={activeRepo.path} currentBranch={activeRepo.currentBranch} ahead={activeRepo.ahead} behind={activeRepo.behind} isClean={activeRepo.isClean} />
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} onClone={handleClone} />}
+      {/* 推送弹窗：选择远程仓库和分支，成功自动关闭，失败显示错误 */}
+      {showPushDialog && activeRepo && (
+        <PushDialog
+          repoPath={activeRepo.path}
+          currentBranch={activeRepo.currentBranch}
+          isPushing={pushMutation.isPending}
+          error={pushError}
+          onClose={() => setShowPushDialog(false)}
+          onPush={handlePush}
+        />
+      )}
       {/* 拉取进度面板：Header 下方 20px，左右内缩 20px，成功自动关闭 / 失败显示错误 */}
       {showPullDialog && (
         <div className="fixed z-50" style={{ top: '68px', left: '20px', right: '20px' }}>
