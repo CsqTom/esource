@@ -124,7 +124,7 @@ export function Header({
       {/* 视图切换按钮（推送到最右侧） */}
       <div className="ml-auto flex items-center gap-1">
         <ToolbarButton icon={<GitBranch className="w-3.5 h-3.5" />} label="分支" active={activeView === 'branch'} onClick={() => onViewChange(activeView === 'branch' ? 'diff' : 'branch')} />
-        <ToolbarButton icon={<History className="w-3.5 h-3.5" />} label="日志" active={activeView === 'log'} onClick={() => onViewChange(activeView === 'log' ? 'diff' : 'log')} />
+        <ToolbarButton icon={<History className="w-3.5 h-3.5" />} label="历史" active={activeView === 'log'} onClick={() => onViewChange(activeView === 'log' ? 'diff' : 'log')} />
         <ToolbarButton icon={<Tag className="w-3.5 h-3.5" />} label="标签" active={activeView === 'tags'} onClick={() => onViewChange(activeView === 'tags' ? 'diff' : 'tags')} />
         <ToolbarButton icon={<Archive className="w-3.5 h-3.5" />} label="Stash" active={activeView === 'stash'} onClick={() => onViewChange(activeView === 'stash' ? 'diff' : 'stash')} />
         <ToolbarButton icon={<Globe className="w-3.5 h-3.5" />} label="远程" active={activeView === 'remote'} onClick={() => onViewChange(activeView === 'remote' ? 'diff' : 'remote')} />

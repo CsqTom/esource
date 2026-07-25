@@ -10,7 +10,7 @@ export interface SerializedCommitDetail extends SerializedCommit { changedFiles:
 export interface SerializedTag { name: string; commit: string; label: string; date: number; annotated: boolean; message?: string; }
 export interface SerializedStash { id: string; index: number; message: string; branch: string; date: number; }
 export interface SerializedRemote { name: string; refs: { fetch: string; push: string; }; }
-export interface LogQueryOptions { maxCount?: number; branch?: string; since?: string; author?: string; search?: string; }
+export interface LogQueryOptions { maxCount?: number; branch?: string; since?: string; author?: string; search?: string; all?: boolean; }
 export interface SelectionRange { hunkIndex: number; startLine: number; endLine: number; }
 export interface FileChangeItem { path: string; status: 'added' | 'modified' | 'deleted' | 'renamed' | 'conflicted' | 'untracked'; staged: boolean; oldPath?: string; }
 export interface ElectronAPI {

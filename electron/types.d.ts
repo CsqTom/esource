@@ -111,6 +111,7 @@ interface LogQueryOptions {
   since?: string;
   author?: string;
   search?: string;
+  all?: boolean;
 }
 
 interface SelectionRange {

@@ -164,9 +164,10 @@ function buildGraph(commits: SerializedCommit[]): GraphNode[] {
       const parentCol = colMap.get(commit.parents[i]);
       if (parentCol === undefined || parentCol === commitCol) continue;
       const edgeType = i === 0 ? 'branch' : 'merge';
+      // 连线颜色取目标列（parentCol）的颜色，与该列活跃分支竖线一致
       parentEdges.push({ fromCol: commitCol, toCol: parentCol, type: edgeType, color: COLORS[parentCol % COLORS.length] });
 
-      // 合并线需在隔行补竖线延续（父提交不在相邻下一行时）
+      // 合并线需在隔行补竖线延续（父提交不在相邻下一行时），颜色与目标列竖线一致
       if (edgeType === 'merge') {
         const pIdx = commitIndexMap.get(commit.parents[i]);
         const cIdx = commitIndexMap.get(commit.hash);
@@ -188,25 +189,38 @@ function buildGraph(commits: SerializedCommit[]): GraphNode[] {
 
 const colX = (col: number) => PAD + col * COL_W + COL_W / 2;
 
-function CommitRow({ commit, node, isSelected, maxCols, onClick }: { commit: SerializedCommit; node: GraphNode; isSelected: boolean; maxCols: number; onClick: () => void }) {
+/** 解析 %D 装饰字符串为结构化 ref，参考 sourcetree-rust 的 RefInfo */
+interface ParsedRef { kind: 'head' | 'branch' | 'tag' | 'remote'; name: string; }
+function parseRef(ref: string, remoteRefs?: Set<string>): ParsedRef | null {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('HEAD -> ')) return { kind: 'head', name: trimmed.slice(8).trim() };
+  if (trimmed === 'HEAD') return { kind: 'head', name: 'HEAD' };
+  if (trimmed.startsWith('tag: ')) return { kind: 'tag', name: trimmed.slice(5).trim() };
+  // 远程跟踪分支（通过 branch list 预判）
+  if (remoteRefs && remoteRefs.has(trimmed)) return { kind: 'remote', name: trimmed };
+  return { kind: 'branch', name: trimmed };
+}
+
+function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick }: { commit: SerializedCommit; node: GraphNode; isSelected: boolean; maxCols: number; remoteRefs?: Set<string>; onClick: () => void }) {
   const svgW = maxCols * COL_W + PAD * 2;
   const cx = colX(node.col);
   const dotColor = COLORS[node.col % COLORS.length];
-  const branches = [...new Set(commit.refs.filter(r => !r.startsWith('tag: ') && r !== 'HEAD').map(r => r.includes(' -> ') ? (r.split(' -> ')[1] || '').trim() : r.trim()).filter(Boolean))];
-  const tags = [...new Set(commit.refs.filter(r => r.startsWith('tag: ')).map(r => r.replace('tag: ', '').trim()).filter(Boolean))];
+  // 解析 refs：HEAD（当前分支）、普通分支、远程跟踪分支、标签
+  const parsedRefs = commit.refs.map(r => parseRef(r, remoteRefs)).filter((r): r is ParsedRef => r !== null);
   return (
     <div onClick={onClick} className={`flex items-center cursor-pointer transition-colors hover:bg-gray-800 ${isSelected ? 'bg-blue-900/30' : ''}`} style={{ height: ROW_H }}>
       <svg width={svgW} height={ROW_H} viewBox={`0 0 ${svgW} ${ROW_H}`} className="shrink-0">
         {/* 1. 竖线：活跃分支列（贯穿整行 y=0 → ROW_H） */}
         {node.branches.map((bid, j) => {
           if (bid === null) return null; const x = colX(j);
-          return <line key={`v-${j}`} x1={x} y1={0} x2={x} y2={ROW_H} stroke={COLORS[j % COLORS.length]} strokeWidth={2.5} opacity={bid === commit.hash ? 1 : 0.6} />;
+          return <line key={`v-${j}`} x1={x} y1={0} x2={x} y2={ROW_H} stroke={COLORS[j % COLORS.length]} strokeWidth={2.5} />;
         })}
         {/* 1b. 合并线隔行延续竖线（避免与活跃分支竖线重复） */}
         {node.mergePassThroughs.map(mt => {
           if (mt.col < node.branches.length && node.branches[mt.col] !== null) return null;
           const x = colX(mt.col);
-          return <line key={`mt-${mt.col}`} x1={x} y1={0} x2={x} y2={ROW_H} stroke={mt.color} strokeWidth={2.5} opacity={0.6} />;
+          return <line key={`mt-${mt.col}`} x1={x} y1={0} x2={x} y2={ROW_H} stroke={mt.color} strokeWidth={2.5} />;
         })}
         {/* 2. 子连线（仅 branch 类型在父行绘制；merge 类型在子行绘制，避免重复） */}
         {node.childEdges.filter(e => e.type === 'branch').map((e, i) => {
@@ -221,8 +235,13 @@ function CommitRow({ commit, node, isSelected, maxCols, onClick }: { commit: Ser
         <circle key="dot" cx={cx} cy={MID_Y} r={DOT_R} fill={isSelected ? '#60A5FA' : dotColor} stroke="#1F2937" strokeWidth={2} />
       </svg>
       <div className="flex-1 flex items-center min-w-0 gap-1 px-2" style={{ height: ROW_H }}>
-        {branches.map((b, i) => <span key={`b-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded bg-green-900/40 text-green-300 font-mono whitespace-nowrap"><GitBranch className="w-3 h-3" />{b}</span>)}
-        {tags.map((t, i) => <span key={`t-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded bg-yellow-900/40 text-yellow-300 font-mono whitespace-nowrap"><Tag className="w-3 h-3" />{t}</span>)}
+        {parsedRefs.map((r, i) => {
+          // 标签固定黄色；远程跟踪分支灰色虚边框；本地分支/HEAD 徽章颜色与连线一致
+          if (r.kind === 'tag') return <span key={`r-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded bg-yellow-900/40 text-yellow-300 font-mono whitespace-nowrap" title={`标签: ${r.name}`}><Tag className="w-3 h-3" />{r.name}</span>;
+          if (r.kind === 'remote') return <span key={`r-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded bg-gray-700/40 text-gray-400 font-mono whitespace-nowrap border border-dashed border-gray-500/50" title={`远程分支: ${r.name}`}><GitBranch className="w-3 h-3" />{r.name}</span>;
+          const title = r.kind === 'head' ? `当前分支: ${r.name}` : `分支: ${r.name}`;
+          return <span key={`r-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded font-mono whitespace-nowrap border" style={{ backgroundColor: `${dotColor}26`, color: dotColor, borderColor: `${dotColor}66` }} title={title}><GitBranch className="w-3 h-3" />{r.name}</span>;
+        })}
         <span className="text-sm text-gray-100 truncate flex-1 min-w-0">{commit.message.split('\n')[0]}</span>
         <span className="text-xs text-gray-500 hidden sm:block truncate max-w-[100px]">{commit.author}</span>
         <span className="text-xs text-gray-500 hidden md:block whitespace-nowrap">{formatDate(commit.date)}</span>
@@ -236,11 +255,25 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [maxCount, setMaxCount] = useState(100);
+  const [activeTab, setActiveTab] = useState<'current' | 'all'>('current');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 分支列表：用于判断是否有多个本地分支以决定是否显示 tab
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branch:list', repoPath],
+    queryFn: () => window.electronAPI.branch.list(repoPath),
+    staleTime: 30_000,
+  });
+  const localBranchCount = useMemo(() => branches.filter(b => !b.remote).length, [branches]);
+  // 远程分支名集合（用于所有分支视图中区分远程跟踪分支）
+  const remoteRefSet = useMemo(() => new Set(branches.filter(b => b.remote).map(b => b.name)), [branches]);
+  const showTabs = localBranchCount > 1;
+  // 只有一个分支时强制锁定在当前分支视图
+  const effectiveTab = showTabs ? activeTab : 'current';
+
   const { data: commits = [], isLoading } = useQuery({
-    queryKey: ['log', repoPath, maxCount, searchQuery],
-    queryFn: () => window.electronAPI.log.list(repoPath, { maxCount, search: searchQuery || undefined }),
+    queryKey: ['log', repoPath, maxCount, searchQuery, effectiveTab],
+    queryFn: () => window.electronAPI.log.list(repoPath, { maxCount, search: searchQuery || undefined, all: effectiveTab === 'all' }),
     staleTime: 5_000,
   });
 
@@ -263,6 +296,14 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
         <span className="text-sm font-medium">提交历史</span>
         <span className="text-xs text-gray-500">({commits.length} 条)</span>
       </div>
+
+      {/* 多分支时显示 tab：当前分支 / 所有分支；单分支时不显示 */}
+      {showTabs && (
+        <div className="flex items-center gap-1 px-4 py-1.5 border-b border-gray-700 bg-gray-800/30">
+          <button onClick={() => setActiveTab('current')} className={`px-3 py-1 text-xs rounded transition-colors ${effectiveTab === 'current' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>当前分支</button>
+          <button onClick={() => setActiveTab('all')} className={`px-3 py-1 text-xs rounded transition-colors ${effectiveTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>所有分支</button>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-800/50">
         <div className="relative flex-1">
@@ -292,7 +333,7 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
             <div className="flex items-center justify-center h-32 text-gray-500 text-sm">没有提交记录</div>
           ) : (
             commits.map((commit, idx) => (
-              <CommitRow key={commit.hash} commit={commit} node={graph[idx] || { col: 0, branches: [], childEdges: [], parentEdges: [], mergePassThroughs: [] }} isSelected={selectedHash === commit.hash} maxCols={maxCols} onClick={() => setSelectedHash(commit.hash)} />
+              <CommitRow key={commit.hash} commit={commit} node={graph[idx] || { col: 0, branches: [], childEdges: [], parentEdges: [], mergePassThroughs: [] }} isSelected={selectedHash === commit.hash} maxCols={maxCols} remoteRefs={remoteRefSet} onClick={() => setSelectedHash(commit.hash)} />
             ))
           )}
         </div>
