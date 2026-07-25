@@ -1,8 +1,8 @@
 import { Fragment } from 'react';
 import { SerializedRepository } from '../../types';
 import {
-  GitBranch, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode, Trash2, Menu,
-  History, Tag, Archive, Globe,
+  GitBranch, Download, Upload, RefreshCw, Search, Plus, FolderOpen, Trash2, Menu,
+  History, Tag, Archive, Globe, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -25,6 +25,8 @@ interface HeaderProps {
   isFetching: boolean;
   activeView: ViewMode;
   onViewChange: (view: ViewMode) => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -43,15 +45,22 @@ function ToolbarButton({ icon, label, active, onClick }: ToolbarButtonProps) {
 export function Header({
   repos, activeRepo, onSelectRepo, onAddRepo, onCloneRepo, onInitRepo, onRemoveRepo,
   onPull, onPush, onFetch, onToggleBranch, isPulling, isPushing, isFetching,
-  activeView, onViewChange,
+  activeView, onViewChange, sidebarCollapsed, onToggleSidebar,
 }: HeaderProps) {
   const [showRepoMenu, setShowRepoMenu] = useState(false);
 
   return (
     <header className="h-12 bg-gray-800 border-b border-gray-700 flex items-center px-4 gap-2 flex-shrink-0">
-      {/* Logo */}
-      <FileCode className="w-5 h-5 text-blue-400 flex-shrink-0" />
-      <span className="text-sm text-blue-400 font-bold mr-1 hidden md:inline">eSource</span>
+      {/* 仓库视图收缩/展开按钮 */}
+      <button onClick={onToggleSidebar}
+        className="relative p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors flex-shrink-0"
+        title={sidebarCollapsed ? '展开仓库视图' : '收起仓库视图'}>
+        {sidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+        {/* 任一仓库有未拉取或未推送变更时显示红点 */}
+        {repos.some(r => r.behind > 0 || r.ahead > 0) && (
+          <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500" />
+        )}
+      </button>
 
       {/* 仓库选择器 */}
       <div className="relative">
@@ -96,19 +105,27 @@ export function Header({
 
       <div className="w-px h-6 bg-gray-700 flex-shrink-0" />
 
-      {/* 远程操作按钮 */}
+      {/* 远程操作按钮：拉取 → 推送 → 获取（仅发现变更） */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onFetch} disabled={isFetching}
-          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="获取（Fetch）">
-          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} /><span className="hidden md:inline">获取</span>
-        </button>
         <button onClick={onPull} disabled={isPulling}
-          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="拉取（Pull）">
+          className="relative flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="拉取（Pull）">
           <Download className={`w-3.5 h-3.5 ${isPulling ? 'animate-bounce' : ''}`} /><span className="hidden md:inline">拉取</span>
+          {/* 有未拉取变更时显示红色徽章带数量 */}
+          {activeRepo.behind > 0 && !isPulling && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">{activeRepo.behind}</span>
+          )}
         </button>
         <button onClick={onPush} disabled={isPushing}
-          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="推送（Push）">
+          className="relative flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="推送（Push）">
           <Upload className={`w-3.5 h-3.5 ${isPushing ? 'animate-bounce' : ''}`} /><span className="hidden md:inline">推送</span>
+          {/* 有未推送提交时显示绿色徽章带数量 */}
+          {activeRepo.ahead > 0 && !isPushing && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-green-500 text-white text-[9px] font-bold flex items-center justify-center">{activeRepo.ahead}</span>
+          )}
+        </button>
+        <button onClick={onFetch} disabled={isFetching}
+          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="获取（仅发现远程变更，不合并）">
+          <Search className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} /><span className="hidden md:inline">获取</span>
         </button>
       </div>
 

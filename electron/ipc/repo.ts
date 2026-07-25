@@ -33,9 +33,32 @@ export function registerRepoHandlers() {
   ipcMain.handle('branch:delete', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).branch(['-D', name]); });
   ipcMain.handle('branch:merge', async (_event, repoPath: string, branch: string): Promise<string> => { return (await getGit(repoPath).merge([branch]))?.result || '合并成功'; });
   ipcMain.handle('remote:list', async (_event, repoPath: string): Promise<SerializedRemote[]> => { return (await getGit(repoPath).getRemotes(true)).map((r) => ({ name: r.name, refs: { fetch: r.refs?.fetch || '', push: r.refs?.push || '' } })); });
-  ipcMain.handle('remote:push', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => { await getGit(repoPath).push(remote || 'origin', branch || 'HEAD'); });
-  ipcMain.handle('remote:pull', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => { await getGit(repoPath).pull(remote || 'origin', branch || 'HEAD'); });
-  ipcMain.handle('remote:fetch', async (_event, repoPath: string, remote?: string): Promise<void> => { await getGit(repoPath).fetch(remote || 'origin'); });
+  // 从跟踪分支自动解析 remote 名和分支名，避免硬编码 'origin' 导致非默认 remote 仓库操作失败
+  async function resolveRemoteBranch(repoPath: string, remote?: string, branch?: string): Promise<{ remote: string; branch: string }> {
+    if (remote && branch) return { remote, branch };
+    const status = await getGit(repoPath).status();
+    const tracking = status.tracking || '';
+    return {
+      remote: remote || (tracking ? tracking.split('/')[0] : 'origin'),
+      branch: branch || status.current || 'HEAD',
+    };
+  }
+  ipcMain.handle('remote:push', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
+    await getGit(repoPath).push(r, b);
+  });
+  ipcMain.handle('remote:pull', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
+    await getGit(repoPath).pull(r, b);
+  });
+  ipcMain.handle('remote:fetch', async (_event, repoPath: string, remote?: string): Promise<void> => {
+    const git = getGit(repoPath);
+    if (remote) { await git.fetch(remote); return; }
+    // 未指定 remote 时从跟踪分支解析
+    const status = await git.status();
+    const r = status.tracking ? status.tracking.split('/')[0] : 'origin';
+    await git.fetch(r);
+  });
   ipcMain.handle('remote:add', async (_event, repoPath: string, name: string, url: string): Promise<void> => { await getGit(repoPath).raw(['remote', 'add', name, url]); });
   ipcMain.handle('remote:remove', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).raw(['remote', 'remove', name]); });
   ipcMain.handle('remote:rename', async (_event, repoPath: string, oldName: string, newName: string): Promise<void> => { await getGit(repoPath).raw(['remote', 'rename', oldName, newName]); });

@@ -13,7 +13,7 @@ import { StashPanel } from './components/stash/StashPanel';
 import { RemotePanel } from './components/remote/RemotePanel';
 import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
-import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode } from 'lucide-react';
+import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode, X, AlertCircle } from 'lucide-react';
 
 type ViewMode = 'diff' | 'log' | 'tags' | 'stash' | 'remote' | 'branch';
 
@@ -22,9 +22,16 @@ export default function App() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [commitMessage, setCommitMessage] = useState('');
+  // 提交草稿按仓库区分，避免不同项目互相影响
+  const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
+  // 全局最近提交记录（localStorage，最近10条去重）
+  const [recentMessages, setRecentMessages] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('recentCommitMessages') || '[]'); } catch { return []; }
+  });
   const [activeView, setActiveView] = useState<ViewMode>('diff');
   const [activeTab, setActiveTab] = useState<'staged' | 'unstaged'>('unstaged');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [showPullDialog, setShowPullDialog] = useState(false);
 
   const { data: repos = [], isLoading: reposLoading } = useQuery({ queryKey: ['repos'], queryFn: () => window.electronAPI.repo.list(), staleTime: 3_000 });
   const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null;
@@ -85,10 +92,26 @@ export default function App() {
   const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); setSelectedFile(null); } });
-  const commitMutation = useMutation({ mutationFn: (message: string) => window.electronAPI.workdir.commit(activeRepo!.path, message), onSuccess: () => { setCommitMessage(''); queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); } });
-  const pullMutation = useMutation({ mutationFn: () => window.electronAPI.remote.pull(activeRepo!.path), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); } });
-  const pushMutation = useMutation({ mutationFn: () => window.electronAPI.remote.push(activeRepo!.path), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['repos'] }) });
-  const fetchMutation = useMutation({ mutationFn: () => window.electronAPI.remote.fetch(activeRepo!.path), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['repos'] }) });
+  // 提交：成功后清空当前仓库草稿，记录到最近提交（去重，最多10条）
+  const commitMutation = useMutation({
+    mutationFn: (message: string) => window.electronAPI.workdir.commit(activeRepo!.path, message),
+    onSuccess: (_data, message) => {
+      // 清空当前仓库草稿
+      if (activeRepo) setCommitDrafts(prev => { const next = { ...prev }; delete next[activeRepo.id]; return next; });
+      // 记录到最近提交（去重，最多10条）
+      const nextRecent = [message, ...recentMessages.filter(m => m !== message)].slice(0, 10);
+      setRecentMessages(nextRecent);
+      localStorage.setItem('recentCommitMessages', JSON.stringify(nextRecent));
+      queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] });
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+    },
+  });
+  // 拉取/推送/获取：操作成功后刷新状态与仓库列表（更新 ahead/behind）
+  const invalidateRepoState = () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); };
+  // 拉取：成功后自动关闭弹窗并刷新状态；失败时保留弹窗显示错误
+  const pullMutation = useMutation({ mutationFn: () => window.electronAPI.remote.pull(activeRepo!.path), onSuccess: () => { invalidateRepoState(); setShowPullDialog(false); }, onError: (err) => console.error('拉取失败:', err) });
+  const pushMutation = useMutation({ mutationFn: () => window.electronAPI.remote.push(activeRepo!.path), onSuccess: invalidateRepoState, onError: (err) => console.error('推送失败:', err) });
+  const fetchMutation = useMutation({ mutationFn: () => window.electronAPI.remote.fetch(activeRepo!.path), onSuccess: invalidateRepoState, onError: (err) => console.error('获取失败:', err) });
 
   const handleAddRepo = useCallback(async () => { try { await window.electronAPI.repo.add(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('添加仓库失败:', err); } }, [queryClient]);
   const handleInitRepo = useCallback(async () => { try { await window.electronAPI.repo.init(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('初始化仓库失败:', err); } }, [queryClient]);
@@ -96,6 +119,9 @@ export default function App() {
   const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); setSelectedFile(null); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
   const handleStageAll = useCallback(() => stageMutation.mutate(['.']), [stageMutation]);
   const handleUnstageAll = useCallback(() => unstageMutation.mutate(['.']), [unstageMutation]);
+  // 获取/设置当前仓库的提交草稿
+  const commitMessage = activeRepo ? (commitDrafts[activeRepo.id] || '') : '';
+  const setCommitMessage = (msg: string) => { if (activeRepo) setCommitDrafts(prev => ({ ...prev, [activeRepo.id]: msg })); };
   const handleCommit = useCallback(() => { if (!commitMessage.trim()) return; commitMutation.mutate(commitMessage); }, [commitMessage, commitMutation]);
   const handleFileClick = useCallback((file: FileChangeItem) => { setSelectedFile(file.path); setActiveView('diff'); }, []);
   const handleStageFile = useCallback((file: string) => stageMutation.mutate([file]), [stageMutation]);
@@ -123,15 +149,18 @@ export default function App() {
     <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
       <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }}
         onAddRepo={handleAddRepo} onCloneRepo={() => setShowCloneDialog(true)} onInitRepo={handleInitRepo} onRemoveRepo={handleRemoveRepo}
-        onPull={pullMutation.mutate} onPush={pushMutation.mutate} onFetch={fetchMutation.mutate}
+        onPull={() => { setShowPullDialog(true); pullMutation.mutate(); }} onPush={pushMutation.mutate} onFetch={fetchMutation.mutate}
         onToggleBranch={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')}
         isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending}
-        activeView={activeView} onViewChange={setActiveView} />
+        activeView={activeView} onViewChange={setActiveView}
+        sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
       <div className="flex-1 flex overflow-hidden">
+        {!sidebarCollapsed && (
         <div className="w-60 border-r border-gray-700 overflow-y-auto flex-shrink-0">
-          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }} onRemoveRepo={handleRemoveRepo} />
+          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} />
         </div>
+        )}
         <div className="w-96 border-r border-gray-700 flex flex-col flex-shrink-0">
           <div className="flex border-b border-gray-700">
             <button onClick={() => setActiveTab('staged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'staged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>已暂存 ({fileChanges.filter((f) => f.staged).length})</button>
@@ -145,6 +174,21 @@ export default function App() {
             <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} />
           </div>
           <div className="border-t border-gray-700 p-3 bg-gray-800/50">
+            {/* 最近提交选择器：全局共用，选中填充到提交框 */}
+            {recentMessages.length > 0 && (
+              <div className="mb-2">
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) setCommitMessage(e.target.value); e.target.value = ''; }}
+                  className="w-full bg-gray-700 text-gray-400 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gray-500 cursor-pointer"
+                >
+                  <option value="" disabled>选择最近提交...</option>
+                  {recentMessages.map((msg, i) => (
+                    <option key={i} value={msg}>{msg.length > 50 ? msg.slice(0, 50) + '...' : msg}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <textarea value={commitMessage} onChange={(e) => setCommitMessage(e.target.value)} placeholder="提交信息..." className="w-full bg-gray-700 text-gray-100 rounded px-3 py-2 text-sm resize-none h-20 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500" onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleCommit(); }} />
             <div className="flex items-center justify-between mt-2">
               <span className="text-xs text-gray-500">{fileChanges.filter((f) => f.staged).length} 个文件待提交</span>
@@ -156,6 +200,27 @@ export default function App() {
       </div>
       <StatusBar repoPath={activeRepo.path} currentBranch={activeRepo.currentBranch} ahead={activeRepo.ahead} behind={activeRepo.behind} isClean={activeRepo.isClean} />
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} onClone={handleClone} />}
+      {/* 拉取进度面板：Header 下方 20px，左右内缩 20px，成功自动关闭 / 失败显示错误 */}
+      {showPullDialog && (
+        <div className="fixed z-50" style={{ top: '68px', left: '20px', right: '20px' }}>
+          <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl">
+            {pullMutation.isPending ? (
+              <div className="p-4">
+                <div className="flex items-center gap-2 text-sm text-gray-200 mb-3"><Download className="w-4 h-4 animate-bounce" />正在拉取远程变更...</div>
+                <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} /></div>
+              </div>
+            ) : pullMutation.isError ? (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-sm text-red-400"><AlertCircle className="w-4 h-4" />拉取失败</div>
+                  <button onClick={() => setShowPullDialog(false)} className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"><X className="w-4 h-4" /></button>
+                </div>
+                <pre className="text-xs text-gray-300 bg-gray-900/60 rounded p-3 max-h-[300px] overflow-auto whitespace-pre-wrap">{String(pullMutation.error?.message || pullMutation.error || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, '')}</pre>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 
