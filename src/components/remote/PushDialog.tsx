@@ -5,20 +5,20 @@ import type { SerializedRemote, SerializedBranch } from '../../types';
 interface PushDialogProps {
   repoPath: string;
   currentBranch: string | null;
-  isPushing: boolean;
+  isOperating: boolean;
   error: string | null;
   onClose: () => void;
   onPush: (remote: string, branch: string) => void;
 }
 
-export function PushDialog({ repoPath, currentBranch, isPushing, error, onClose, onPush }: PushDialogProps) {
+export function PushDialog({ repoPath, currentBranch, isOperating, error, onClose, onPush }: PushDialogProps) {
   const [remotes, setRemotes] = useState<SerializedRemote[]>([]);
   const [branches, setBranches] = useState<SerializedBranch[]>([]);
   const [selectedRemote, setSelectedRemote] = useState<string>('');
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
-  // 加载远程仓库列表和分支列表
+  // 加载远程仓库列表和本地分支列表
   useEffect(() => {
     (async () => {
       try {
@@ -27,10 +27,17 @@ export function PushDialog({ repoPath, currentBranch, isPushing, error, onClose,
           window.electronAPI.branch.list(repoPath),
         ]);
         setRemotes(remoteList);
-        setBranches(branchList.filter(b => !b.remote)); // 只显示本地分支
-        // 默认选中第一个远程和当前分支
-        if (remoteList.length > 0) setSelectedRemote(remoteList[0].name);
-        if (currentBranch) setSelectedBranch(currentBranch);
+        // 推送：显示本地分支
+        const localBranches = branchList.filter(b => !b.remote);
+        setBranches(localBranches);
+        // 默认选中第一个远程
+        if (remoteList.length > 0) {
+          setSelectedRemote(remoteList[0].name);
+        }
+        // 默认选中当前分支
+        if (currentBranch) {
+          setSelectedBranch(currentBranch);
+        }
       } catch (err: any) {
         console.error('加载数据失败:', err);
       } finally {
@@ -47,12 +54,12 @@ export function PushDialog({ repoPath, currentBranch, isPushing, error, onClose,
   return (
     <div className="fixed z-50" style={{ top: '68px', left: '20px', right: '20px' }}>
       <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl">
-        {isPushing ? (
+        {isOperating ? (
           // 推送中：显示进度条
           <div className="p-4">
             <div className="flex items-center gap-2 text-sm text-gray-200 mb-3">
               <Upload className="w-4 h-4 animate-bounce" />
-              正在推送到 {selectedRemote}/{selectedBranch}...
+              正在推送 {selectedRemote}/{selectedBranch}...
             </div>
             <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
               <div className="h-full bg-green-500 rounded-full animate-pulse" style={{ width: '60%' }} />

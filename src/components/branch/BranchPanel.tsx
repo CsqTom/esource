@@ -11,6 +11,7 @@ import {
   Trash2,
   Merge,
   Search,
+  ArrowRight,
 } from 'lucide-react';
 
 interface BranchPanelProps {
@@ -168,11 +169,16 @@ export function BranchPanel({
 
       {/* 分支列表 */}
       <div className="flex-1 overflow-y-auto">
-        {/* 本地分支 */}
+        {/* 本地分支（当前分支排在最前面） */}
         <div className="px-3 py-2 text-xs text-gray-500 font-medium uppercase tracking-wider">
           本地分支
         </div>
-        {localBranches.map((branch) => (
+        {[...localBranches].sort((a, b) => {
+          // 当前分支排在最前面
+          if (a.name === currentBranch) return -1;
+          if (b.name === currentBranch) return 1;
+          return a.name.localeCompare(b.name);
+        }).map((branch) => (
           <BranchItem
             key={branch.name}
             branch={branch}
@@ -183,7 +189,7 @@ export function BranchPanel({
           />
         ))}
 
-        {/* 远程分支 */}
+        {/* 远程分支（当前跟踪分支排在最前面） */}
         {remoteBranches.length > 0 && (
           <>
             <div className="px-3 py-2 text-xs text-gray-500 font-medium uppercase tracking-wider border-t border-gray-700 mt-2">
@@ -240,6 +246,31 @@ function BranchItem({ branch, isCurrent, onCheckout, onDelete, onMerge }: Branch
             </span>
           )}
         </div>
+
+        {/* 显示跟踪关系和 ahead/behind 信息 */}
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {branch.tracking && (
+            <>
+              <ArrowRight className="w-3 h-3 text-gray-500" />
+              <span className="text-xs text-gray-400 truncate">{branch.tracking}</span>
+              {/* ahead/behind 徽章 */}
+              {branch.ahead !== undefined && branch.ahead > 0 && (
+                <span className="text-xs bg-green-600/30 text-green-400 px-1.5 py-0.5 rounded">
+                  ahead {branch.ahead}
+                </span>
+              )}
+              {branch.behind !== undefined && branch.behind > 0 && (
+                <span className="text-xs bg-red-600/30 text-red-400 px-1.5 py-0.5 rounded">
+                  behind {branch.behind}
+                </span>
+              )}
+            </>
+          )}
+          {!branch.remote && !branch.tracking && (
+            <span className="text-xs text-gray-500">(未跟踪)</span>
+          )}
+        </div>
+
         <div className="text-xs text-gray-500 truncate">
           {branch.commit?.slice(0, 8)}
         </div>

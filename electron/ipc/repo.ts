@@ -27,7 +27,69 @@ export function registerRepoHandlers() {
   ipcMain.handle('workdir:unstageLines', async (_event, repoPath: string, file: string, selections: SelectionRange[]): Promise<void> => { const git = getGit(repoPath); const diffStr = await git.diff(['--cached', '-R', file]); const patch = buildPartialPatch(file, diffStr, selections); if (patch) await applyPatchFromFile(git, patch, ['--cached']); });
   ipcMain.handle('workdir:discardLines', async (_event, repoPath: string, file: string, selections: SelectionRange[]): Promise<void> => { const git = getGit(repoPath); const diffStr = await git.diff(['-R', file]); const patch = buildPartialPatch(file, diffStr, selections); if (patch) await applyPatchFromFile(git, patch, []); });
   ipcMain.handle('workdir:commit', async (_event, repoPath: string, message: string): Promise<void> => { if (!message?.trim()) throw new Error('提交信息不能为空'); await getGit(repoPath).commit(message); });
-  ipcMain.handle('branch:list', async (_event, repoPath: string): Promise<SerializedBranch[]> => { const git = getGit(repoPath); const local = await git.branch(); const remote = await git.branch(['-r']); const branches: SerializedBranch[] = []; for (const [name, info] of Object.entries(local.branches)) branches.push({ name, current: info.current, commit: info.commit, label: info.label, remote: false }); for (const [name, info] of Object.entries(remote.branches)) { if (!branches.find((b) => b.name === name)) branches.push({ name, current: false, commit: info.commit, label: info.label, remote: true }); } return branches; });
+  ipcMain.handle('branch:list', async (_event, repoPath: string): Promise<SerializedBranch[]> => {
+    const git = getGit(repoPath);
+    const branches: SerializedBranch[] = [];
+
+    // 获取本地分支详细信息（包含跟踪关系和 ahead/behind）
+    const localBranchesOutput = await git.raw(['branch', '-vv']);
+    const localBranchLines = localBranchesOutput.split('\n').filter(Boolean);
+
+    for (const line of localBranchLines) {
+      // 解析格式：* master      a1b2c3d [esource/master: ahead 2] Commit message
+      const match = line.match(/^(\*?)\s+(\S+)\s+([a-f0-9]+)\s+(?:\[([^\]]+)\])?\s*(.*)$/);
+      if (!match) continue;
+
+      const [, currentMark, name, commit, trackingInfo, label] = match;
+      const isCurrent = currentMark === '*';
+
+      // 解析跟踪信息：'esource/master: ahead 2, behind 1'
+      let tracking: string | undefined;
+      let ahead: number | undefined;
+      let behind: number | undefined;
+
+      if (trackingInfo) {
+        // 提取跟踪的远程分支
+        const trackingMatch = trackingInfo.match(/^([^:]+)/);
+        if (trackingMatch) {
+          tracking = trackingMatch[1].trim();
+        }
+
+        // 提取 ahead/behind 信息
+        const aheadMatch = trackingInfo.match(/ahead\s+(\d+)/);
+        const behindMatch = trackingInfo.match(/behind\s+(\d+)/);
+        if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
+        if (behindMatch) behind = parseInt(behindMatch[1], 10);
+      }
+
+      branches.push({
+        name,
+        current: isCurrent,
+        commit,
+        label: label || name,
+        remote: false,
+        tracking,
+        ahead,
+        behind,
+      });
+    }
+
+    // 获取远程分支
+    const remote = await git.branch(['-r']);
+    for (const [name, info] of Object.entries(remote.branches)) {
+      if (!branches.find((b) => b.name === name)) {
+        branches.push({
+          name,
+          current: false,
+          commit: info.commit,
+          label: info.label,
+          remote: true,
+        });
+      }
+    }
+
+    return branches;
+  });
   ipcMain.handle('branch:checkout', async (_event, repoPath: string, branchName: string): Promise<void> => { await getGit(repoPath).checkout(branchName); });
   ipcMain.handle('branch:create', async (_event, repoPath: string, name: string, base?: string): Promise<void> => { await getGit(repoPath).branch([name, base || 'HEAD']); });
   ipcMain.handle('branch:delete', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).branch(['-D', name]); });
@@ -44,12 +106,30 @@ export function registerRepoHandlers() {
     };
   }
   ipcMain.handle('remote:push', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const git = getGit(repoPath);
     const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
-    await getGit(repoPath).push(r, b);
+    // 推送并建立跟踪关系（-u 参数）
+    await git.push(['-u', r, b]);
+    console.log(`已推送并建立跟踪关系: ${b} -> ${r}/${b}`);
   });
   ipcMain.handle('remote:pull', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const git = getGit(repoPath);
     const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
-    await getGit(repoPath).pull(r, b);
+    // 拉取前获取当前分支名
+    const status = await git.status();
+    const currentBranch = status.current;
+    // 执行拉取
+    await git.pull(r, b);
+    // 如果当前分支没有跟踪远程分支，自动建立跟踪关系
+    if (currentBranch && !status.tracking) {
+      try {
+        await git.branch(['--set-upstream-to', `${r}/${b}`, currentBranch]);
+        console.log(`已建立跟踪关系: ${currentBranch} -> ${r}/${b}`);
+      } catch (err) {
+        console.error('建立跟踪关系失败:', err);
+        // 不抛出错误，拉取已成功，跟踪关系建立失败不影响主流程
+      }
+    }
   });
   ipcMain.handle('remote:fetch', async (_event, repoPath: string, remote?: string): Promise<void> => {
     const git = getGit(repoPath);
@@ -92,6 +172,63 @@ export function registerRepoHandlers() {
   ipcMain.handle('stash:pop', async (_event, repoPath: string, index?: number): Promise<void> => { await getGit(repoPath).raw(['stash', ...(index !== undefined ? ['pop', `stash@{${index}}`] : ['pop'])]); });
   ipcMain.handle('stash:apply', async (_event, repoPath: string, index: number): Promise<void> => { await getGit(repoPath).raw(['stash', 'apply', `stash@{${index}}`]); });
   ipcMain.handle('stash:drop', async (_event, repoPath: string, index: number): Promise<void> => { await getGit(repoPath).raw(['stash', 'drop', `stash@{${index}}`]); });
+  // 组合操作：stash -> pull -> pop（用于解决拉取冲突）
+  ipcMain.handle('remote:pullWithStash', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const git = getGit(repoPath);
+    const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
+    // 拉取前获取当前分支名和跟踪状态
+    const statusBeforePull = await git.status();
+    const currentBranch = statusBeforePull.current;
+    // 1. stash 本地修改
+    await git.raw(['stash', 'push', '-m', `Auto-stash before pull from ${r}/${b}`]);
+    try {
+      // 2. pull 远程更新
+      await git.pull(r, b);
+      // 3. 建立跟踪关系（如果当前分支没有跟踪远程分支）
+      if (currentBranch && !statusBeforePull.tracking) {
+        try {
+          await git.branch(['--set-upstream-to', `${r}/${b}`, currentBranch]);
+          console.log(`已建立跟踪关系: ${currentBranch} -> ${r}/${b}`);
+        } catch (err) {
+          console.error('建立跟踪关系失败:', err);
+        }
+      }
+      // 4. pop stash 恢复本地修改（如果失败则不阻止，用户可手动处理）
+      try {
+        await git.raw(['stash', 'pop']);
+      } catch (popErr) {
+        console.error('Stash pop 失败，冲突可能需要手动解决:', popErr);
+        // 不抛出错误，pull 已成功，用户可在 stash 列表中找到备份
+      }
+    } catch (pullErr) {
+      // pull 失败时尝试恢复 stash
+      try {
+        await git.raw(['stash', 'pop']);
+      } catch {}
+      throw pullErr;
+    }
+  });
+  // 组合操作：放弃本地修改 -> pull（用于解决拉取冲突）
+  ipcMain.handle('remote:pullWithDiscard', async (_event, repoPath: string, remote?: string, branch?: string): Promise<void> => {
+    const git = getGit(repoPath);
+    const { remote: r, branch: b } = await resolveRemoteBranch(repoPath, remote, branch);
+    // 拉取前获取当前分支名和跟踪状态
+    const statusBeforePull = await git.status();
+    const currentBranch = statusBeforePull.current;
+    // 1. reset --hard 放弃所有本地修改
+    await git.raw(['reset', '--hard', 'HEAD']);
+    // 2. pull 远程更新
+    await git.pull(r, b);
+    // 3. 建立跟踪关系（如果当前分支没有跟踪远程分支）
+    if (currentBranch && !statusBeforePull.tracking) {
+      try {
+        await git.branch(['--set-upstream-to', `${r}/${b}`, currentBranch]);
+        console.log(`已建立跟踪关系: ${currentBranch} -> ${r}/${b}`);
+      } catch (err) {
+        console.error('建立跟踪关系失败:', err);
+      }
+    }
+  });
 }
 interface HunkData { header: string; lines: string[]; }
 function parseHunks(diff: string): HunkData[] { const hunks: HunkData[] = []; let current: HunkData | null = null; for (const line of diff.split('\n')) { if (line.startsWith('@@')) { if (current) hunks.push(current); current = { header: line, lines: [] }; } else if (current && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))) { current.lines.push(line); } } if (current) hunks.push(current); return hunks; }

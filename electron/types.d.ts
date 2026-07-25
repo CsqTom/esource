@@ -19,6 +19,9 @@ interface SerializedBranch {
   commit: string;
   label: string;
   remote: boolean;
+  tracking?: string; // 跟踪的远程分支（如 'esource/master'）
+  ahead?: number; // 领先提交数
+  behind?: number; // 落后提交数
 }
 
 interface SerializedStatus {

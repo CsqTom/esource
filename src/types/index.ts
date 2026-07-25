@@ -1,5 +1,14 @@
 export interface SerializedRepository { id: string; name: string; path: string; currentBranch: string; isClean: boolean; ahead: number; behind: number; remoteUrl: string; addedAt: number; }
-export interface SerializedBranch { name: string; current: boolean; commit: string; label: string; remote: boolean; }
+export interface SerializedBranch {
+  name: string;
+  current: boolean;
+  commit: string;
+  label: string;
+  remote: boolean;
+  tracking?: string; // 跟踪的远程分支（如 'esource/master'）
+  ahead?: number; // 领先提交数
+  behind?: number; // 落后提交数
+}
 export interface SerializedStatus { current: string; tracking: string; files: SerializedStatusFile[]; ahead: number; behind: number; isClean: boolean; conflicted: string[]; created: string[]; deleted: string[]; modified: string[]; renamed: { from: string; to: string }[]; staged: string[]; not_added: string[]; }
 export interface SerializedStatusFile { path: string; index: string; working_dir: string; }
 export interface SerializedDiff { file: string; hunks: SerializedHunk[]; added: number; removed: number; }
