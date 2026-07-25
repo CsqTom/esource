@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SerializedCommit } from '../../types';
+import { ResizableDivider } from '../common/ResizableDivider';
 import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2 } from 'lucide-react';
 
 interface LogViewerProps { repoPath: string; onClose: () => void; }
@@ -258,6 +259,14 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
   const [activeTab, setActiveTab] = useState<'current' | 'all'>('current');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 详情面板宽度（可拖动调整）
+  const detailPanelDivider = ResizableDivider({
+    initialWidth: 384, // w-96 = 384px
+    minWidth: 150, // 最小宽度调小，支持更窄的视图
+    maxWidth: 600,
+    direction: 'right',
+  });
+
   // 分支列表：用于判断是否有多个本地分支以决定是否显示 tab
   const { data: branches = [] } = useQuery({
     queryKey: ['branch:list', repoPath],
@@ -338,8 +347,11 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
           )}
         </div>
 
+        {/* 可拖动分隔条：调整详情面板宽度 */}
+        {selectedHash && <div {...detailPanelDivider.dividerProps} />}
+
         {selectedHash && (
-          <div className="w-96 overflow-y-auto border-l border-gray-700">
+          <div style={{ width: detailPanelDivider.width }} className="overflow-y-auto border-l border-gray-700">
             {detailLoading ? (
               <div className="flex items-center justify-center h-32 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin mr-2" />加载中...</div>
             ) : detail ? (

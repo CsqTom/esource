@@ -15,6 +15,7 @@ import { StashPanel } from './components/stash/StashPanel';
 import { RemotePanel } from './components/remote/RemotePanel';
 import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
+import { ResizableDivider } from './components/common/ResizableDivider';
 import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode, X, AlertCircle } from 'lucide-react';
 
 type ViewMode = 'diff' | 'log' | 'tags' | 'stash' | 'remote' | 'branch';
@@ -36,6 +37,14 @@ export default function App() {
   const [showPullProgress, setShowPullProgress] = useState(false);
   const [showPushDialog, setShowPushDialog] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
+
+  // 暂存区宽度（可拖动调整）
+  const filePanelDivider = ResizableDivider({
+    initialWidth: 384, // w-96 = 384px
+    minWidth: 150, // 最小宽度调小，支持更窄的视图
+    maxWidth: 600,
+    direction: 'left',
+  });
 
   const { data: repos = [], isLoading: reposLoading } = useQuery({ queryKey: ['repos'], queryFn: () => window.electronAPI.repo.list(), staleTime: 3_000 });
   const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null;
@@ -225,7 +234,7 @@ export default function App() {
           <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} />
         </div>
         )}
-        <div className="w-96 border-r border-gray-700 flex flex-col flex-shrink-0">
+        <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
           <div className="flex border-b border-gray-700">
             <button onClick={() => setActiveTab('staged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'staged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>已暂存 ({fileChanges.filter((f) => f.staged).length})</button>
             <button onClick={() => setActiveTab('unstaged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'unstaged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>未暂存 ({fileChanges.filter((f) => !f.staged).length})</button>
@@ -260,6 +269,8 @@ export default function App() {
             </div>
           </div>
         </div>
+        {/* 可拖动分隔条：调整暂存区宽度 */}
+        <div {...filePanelDivider.dividerProps} />
         <div className="flex-1 flex flex-col overflow-hidden">{renderView()}</div>
       </div>
       <StatusBar repoPath={activeRepo.path} currentBranch={activeRepo.currentBranch} ahead={activeRepo.ahead} behind={activeRepo.behind} isClean={activeRepo.isClean} />
