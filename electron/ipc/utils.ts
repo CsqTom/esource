@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 
 export function getGit(repoPath: string): SimpleGit {
-  return simpleGit(repoPath);
+  return simpleGit(repoPath).env("GIT_TERMINAL_PROMPT", "0");
 }
 
 export function serializeStatus(summary: any): SerializedStatus {

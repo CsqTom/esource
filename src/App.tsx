@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { FileChangeItem } from './types';
 import { RepoList } from './components/repo/RepoList';
@@ -42,6 +42,8 @@ export default function App() {
   const [pullError, setPullError] = useState<string | null>(null);
   const [credentialUrl, setCredentialUrl] = useState<string | null>(null);
   const [credentialError, setCredentialError] = useState<string | null>(null);
+  // 记录最近一次因认证失败的操作，用于保存凭据后自动重试
+  const pendingRetry = useRef<{ remote: string; branch: string } | null>(null);
 
   // 暂存区宽度（可拖动调整）
   const filePanelDivider = ResizableDivider({
@@ -132,10 +134,12 @@ export default function App() {
     onError: (err) => {
       const msg = String((err as any)?.message || err || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, '');
       setPullError(msg);
-      // 认证错误时弹出凭据对话框
+      // 认证错误时记录参数并弹出凭据对话框
       if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
         setCredentialUrl(activeRepo?.remoteUrl || '');
         setCredentialError(msg);
+        const lastPull = pullMutation.variables;
+        if (lastPull) pendingRetry.current = lastPull;
       }
     },
   });
@@ -185,12 +189,19 @@ export default function App() {
     },
   });
 
-  // 凭据对话框
+  // 凭据对话框：保存后自动重试挂起的操作
   const handleCredentialSave = useCallback(async (url: string, username: string, password: string) => {
     await window.electronAPI.git.setCredential(url, username, password);
     setCredentialUrl(null);
     setCredentialError(null);
-  }, []);
+    // 自动重试上次因认证失败的操作
+    const retry = pendingRetry.current;
+    pendingRetry.current = null;
+    if (retry) {
+      setPullError(null);
+      pullMutation.mutate(retry);
+    }
+  }, [pullMutation]);
 
   
   // 自动获取：启动时获取一次，之后每 5 分钟定时获取（不使用 mutation，避免依赖循环）
