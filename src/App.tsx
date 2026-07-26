@@ -132,11 +132,13 @@ export default function App() {
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.pull(activeRepo!.path, remote, branch),
     onSuccess: () => { invalidateRepoState(); setShowPullProgress(false); setPullError(null); },
     onError: (err) => {
-      const msg = String((err as any)?.message || err || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, '');
+      const msg = String((err as any)?.message || err || '');
       setPullError(msg);
       // 认证错误时记录参数并弹出凭据对话框
-      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
-        setCredentialUrl(activeRepo?.remoteUrl || '');
+      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
+        // 从错误信息中提取 URL（如 "could not read Username for 'http://...'"）
+        const urlMatch = msg.match(/'([^']+)'/);
+        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
         setCredentialError(msg);
         const lastPull = pullMutation.variables;
         if (lastPull) pendingRetry.current = lastPull;
@@ -168,8 +170,9 @@ export default function App() {
     onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); },
     onError: (err) => {
       const msg = String((err as any)?.message || err || '');
-      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
-        setCredentialUrl(activeRepo?.remoteUrl || '');
+      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
+        const urlMatch = msg.match(/'([^']+)'/);
+        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
         setCredentialError(msg);
       }
     },
@@ -181,8 +184,9 @@ export default function App() {
     onSuccess: invalidateRepoState,
     onError: (err) => {
       const msg = String((err as any)?.message || err || '');
-      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
-        setCredentialUrl(activeRepo?.remoteUrl || '');
+      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
+        const urlMatch = msg.match(/'([^']+)'/);
+        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
         setCredentialError(msg);
       }
       console.error('获取失败:', err);
