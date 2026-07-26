@@ -187,10 +187,22 @@ export default function App() {
 
   // 凭据对话框
   const handleCredentialSave = useCallback(async (url: string, username: string, password: string) => {
-    await window.electronAPI.git.setCredential(url, username, password);
+    if (!activeRepo) return;
+    // 查找匹配 URL 的远程名，否则默认 origin
+    let remote = 'origin';
+    try {
+      const remotes = await window.electronAPI.remote.list(activeRepo.path);
+      const matched = remotes.find(r => r.refs.fetch === url || r.refs.push === url);
+      if (matched) remote = matched.name;
+    } catch {}
+    await window.electronAPI.git.setCredential(activeRepo.path, remote, url, username, password);
     setCredentialUrl(null);
     setCredentialError(null);
-  }, []);
+    // 保存凭据后自动重试：刷新仓库状态使 remoteUrl 更新
+    queryClient.invalidateQueries({ queryKey: ['status', activeRepo.path] });
+    queryClient.invalidateQueries({ queryKey: ['remotes', activeRepo.path] });
+    queryClient.invalidateQueries({ queryKey: ['repos'] });
+  }, [activeRepo, queryClient]);
 
   
   // 自动获取：启动时获取一次，之后每 5 分钟定时获取（不使用 mutation，避免依赖循环）

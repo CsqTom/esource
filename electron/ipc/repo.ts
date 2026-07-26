@@ -2,7 +2,7 @@ import { ipcMain, dialog, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
-import { getGit } from "./utils";
+import { getGit, embedCredentialsInUrl, stripCredentialsFromUrl } from "./utils";
 import { loadStore, saveStore } from "./store";
 import type { RepoRecord } from "./store";
 import { registerWorkdirHandlers } from "./workdir";
@@ -39,7 +39,7 @@ export function registerRepoHandlers() {
           isClean: (status.isClean?.() ?? true) && !status.conflicted?.length,
           ahead: status.ahead || 0,
           behind: status.behind || 0,
-          remoteUrl: remotes[0]?.refs?.fetch || "",
+          remoteUrl: stripCredentialsFromUrl(remotes[0]?.refs?.fetch || ""),
           addedAt: record.addedAt,
         });
       } catch {
@@ -127,7 +127,7 @@ export function registerRepoHandlers() {
         isClean: (status.isClean?.() ?? true) && !status.conflicted?.length,
         ahead: status.ahead || 0,
         behind: status.behind || 0,
-        remoteUrl: url,
+        remoteUrl: stripCredentialsFromUrl(url),
         addedAt: record.addedAt,
       };
     },
@@ -208,34 +208,17 @@ export function registerRepoHandlers() {
     "git:setCredential",
     async (
       _event,
+      repoPath: string,
+      remote: string,
       url: string,
       username: string,
       password: string,
     ): Promise<void> => {
-      // 启用 credential.helper store（持久化存储凭据）
-      const git = getGit("");
-      try {
-        await git.raw([
-          "config",
-          "--global",
-          "credential.helper",
-          "store",
-        ]);
-      } catch {}
-      // 写入凭据到 git credential store
-      const input = `url=${url}\nusername=${username}\npassword=${password}\n`;
-      return new Promise((resolve, reject) => {
-        const child = exec(
-          "git credential approve",
-          { encoding: "utf-8" },
-          (err) => {
-            if (err) reject(err);
-            else resolve();
-          },
-        );
-        child.stdin?.write(input);
-        child.stdin?.end();
-      });
+      // 将凭据嵌入远程 URL：https://user:pass@host/path
+      const credUrl = embedCredentialsInUrl(url, username, password);
+      const git = getGit(repoPath);
+      await git.raw(["remote", "set-url", remote, credUrl]);
+      console.log(`凭据已嵌入远程 ${remote} 的 URL`);
     },
   );
 }

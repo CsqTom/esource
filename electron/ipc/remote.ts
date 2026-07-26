@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { getGit, resolveRemoteBranch } from "./utils";
+import { getGit, resolveRemoteBranch, stripCredentialsFromUrl } from "./utils";
 
 export function registerRemoteHandlers() {
   ipcMain.handle(
@@ -7,7 +7,7 @@ export function registerRemoteHandlers() {
     async (_event, repoPath: string): Promise<SerializedRemote[]> => {
       return (await getGit(repoPath).getRemotes(true)).map((r) => ({
         name: r.name,
-        refs: { fetch: r.refs?.fetch || "", push: r.refs?.push || "" },
+        refs: { fetch: stripCredentialsFromUrl(r.refs?.fetch || ""), push: stripCredentialsFromUrl(r.refs?.push || "") },
       }));
     },
   );
