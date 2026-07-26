@@ -1,6 +1,7 @@
 import { ipcMain, dialog, shell } from "electron";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { exec } from "child_process";
 import { getGit } from "./utils";
 import { loadStore, saveStore } from "./store";
@@ -215,27 +216,26 @@ export function registerRepoHandlers() {
       // 启用 credential.helper store（持久化存储凭据）
       const git = getGit("");
       try {
-        await git.raw([
-          "config",
-          "--global",
-          "credential.helper",
-          "store",
-        ]);
+        await git.raw(["config", "--global", "credential.helper", "store"]);
       } catch {}
-      // 写入凭据到 git credential store
-      const input = `url=${url}\nusername=${username}\npassword=${password}\n`;
-      return new Promise((resolve, reject) => {
-        const child = exec(
-          "git credential approve",
-          { encoding: "utf-8" },
-          (err) => {
-            if (err) reject(err);
-            else resolve();
-          },
-        );
-        child.stdin?.write(input);
-        child.stdin?.end();
-      });
+      // 直接写入 ~/.git-credentials 文件（比 git credential approve 更可靠）
+      const credentialsFile = path.join(os.homedir(), ".git-credentials");
+      // 从 URL 中提取 host:port（去掉协议前缀）
+      const urlWithoutProtocol = url.replace(/^https?:\/\//, "");
+      // 构建 credentials 行: http://username:password@host:port
+      const credentialLine = `${url.match(/^https?/i)?.[0] || "http"}://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${urlWithoutProtocol}`;
+      // 追加或替换已有条目
+      let existing = "";
+      try {
+        if (fs.existsSync(credentialsFile))
+          existing = fs.readFileSync(credentialsFile, "utf-8");
+      } catch {}
+      const lines = existing
+        .split("\n")
+        .filter(Boolean)
+        .filter((l) => !l.includes(`@${urlWithoutProtocol}`));
+      lines.push(credentialLine);
+      fs.writeFileSync(credentialsFile, lines.join("\n") + "\n", "utf-8");
     },
   );
 }
