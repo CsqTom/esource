@@ -64,7 +64,7 @@ interface SerializedHunk {
 }
 
 interface SerializedDiffLine {
-  type: 'added' | 'removed' | 'context';
+  type: "added" | "removed" | "context";
   content: string;
   oldLineNo?: number;
   newLineNo?: number;

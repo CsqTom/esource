@@ -1,8 +1,8 @@
 import { useState, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { SerializedCommit } from '../../types';
+import type { SerializedCommit, SerializedDiff } from '../../types';
 import { ResizableDivider } from '../common/ResizableDivider';
-import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2 } from 'lucide-react';
+import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface LogViewerProps { repoPath: string; onClose: () => void; }
 
@@ -263,7 +263,7 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
   const detailPanelDivider = ResizableDivider({
     initialWidth: 384, // w-96 = 384px
     minWidth: 150, // 最小宽度调小，支持更窄的视图
-    maxWidth: 600,
+    maxWidth: 1200,
     direction: 'right',
   });
 
@@ -294,6 +294,20 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
     queryKey: ['log:detail', repoPath, selectedHash],
     queryFn: () => window.electronAPI.log.detail(repoPath, selectedHash!),
     enabled: !!selectedHash, staleTime: 30_000,
+  });
+
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  // 当切换提交时，清除选中的文件
+  const prevHashRef = useRef(selectedHash);
+  if (prevHashRef.current !== selectedHash) {
+    prevHashRef.current = selectedHash;
+    if (selectedHash) setSelectedFile(null);
+  }
+
+  const { data: fileDiff, isLoading: diffLoading } = useQuery({
+    queryKey: ['log:fileDiff', repoPath, selectedHash, selectedFile],
+    queryFn: () => window.electronAPI.log.fileDiff(repoPath, selectedHash!, selectedFile!),
+    enabled: !!selectedHash && !!selectedFile, staleTime: 30_000,
   });
 
   const handleCopy = (hash: string) => navigator.clipboard?.writeText(hash);
@@ -351,33 +365,90 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
         {selectedHash && <div {...detailPanelDivider.dividerProps} />}
 
         {selectedHash && (
-          <div style={{ width: detailPanelDivider.width }} className="overflow-y-auto border-l border-gray-700">
+          <div style={{ width: detailPanelDivider.width }} className="flex flex-col border-l border-gray-700 overflow-hidden">
             {detailLoading ? (
               <div className="flex items-center justify-center h-32 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin mr-2" />加载中...</div>
             ) : detail ? (
-              <div className="p-4 space-y-4">
-                <div>
-                  <h3 className="text-base font-semibold text-gray-100">{detail.message.split('\n')[0]}</h3>
-                  {detail.body && <pre className="mt-2 text-sm text-gray-400 whitespace-pre-wrap font-sans">{detail.body}</pre>}
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-gray-400"><Hash className="w-4 h-4 text-gray-500 shrink-0" /><code className="text-xs font-mono text-gray-300 break-all">{detail.hash}</code><button onClick={() => handleCopy(detail.hash)} className="p-0.5 hover:bg-gray-700 rounded shrink-0"><Copy className="w-3 h-3" /></button></div>
-                  <div className="flex items-center gap-2 text-gray-400"><User className="w-4 h-4 text-gray-500 shrink-0" /><span className="truncate">{detail.author} &lt;{detail.authorEmail}&gt;</span></div>
-                  <div className="flex items-center gap-2 text-gray-400"><Calendar className="w-4 h-4 text-gray-500 shrink-0" /><span>{new Date(detail.date).toLocaleString()}</span></div>
-                  <div className="flex items-center gap-2 text-gray-400"><FileCode className="w-4 h-4 text-gray-500 shrink-0" /><span>{detail.changedFiles.length} 个文件变更</span></div>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-1.5"><FileCode className="w-4 h-4" />变更文件</h4>
-                  <div className="space-y-0.5 max-h-48 overflow-y-auto">
-                    {detail.changedFiles.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-gray-800">
-                        <span className={`text-xs font-mono w-8 ${f.status === 'A' ? 'text-green-400' : f.status === 'D' ? 'text-red-400' : f.status === 'M' ? 'text-blue-400' : 'text-gray-400'}`}>{f.status}</span>
-                        <span className="text-gray-300 truncate">{f.path}</span>
-                      </div>
-                    ))}
+              <>
+                {/* 提交信息头部 */}
+                <div className="p-4 pb-2 space-y-3 overflow-y-auto flex-shrink-0">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-100">{detail.message.split('\n')[0]}</h3>
+                    {detail.body && <pre className="mt-2 text-sm text-gray-400 whitespace-pre-wrap font-sans">{detail.body}</pre>}
+                  </div>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex items-center gap-2 text-gray-400"><Hash className="w-4 h-4 text-gray-500 shrink-0" /><code className="text-xs font-mono text-gray-300 break-all">{detail.hash}</code><button onClick={() => handleCopy(detail.hash)} className="p-0.5 hover:bg-gray-700 rounded shrink-0"><Copy className="w-3 h-3" /></button></div>
+                    <div className="flex items-center gap-2 text-gray-400"><User className="w-4 h-4 text-gray-500 shrink-0" /><span className="truncate">{detail.author} &lt;{detail.authorEmail}&gt;</span></div>
+                    <div className="flex items-center gap-2 text-gray-400"><Calendar className="w-4 h-4 text-gray-500 shrink-0" /><span>{new Date(detail.date).toLocaleString()}</span></div>
+                    <div className="flex items-center gap-2 text-gray-400"><FileCode className="w-4 h-4 text-gray-500 shrink-0" /><span>{detail.changedFiles.length} 个文件变更</span></div>
+                  </div>
+                  {/* 变更文件列表 */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-300 mb-1.5 flex items-center gap-1.5"><FileCode className="w-4 h-4" />变更文件</h4>
+                    <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                      {detail.changedFiles.map((f, i) => (
+                        <div
+                          key={i}
+                          onClick={() => setSelectedFile(f.path)}
+                          className={`flex items-center gap-2 px-2 py-1 text-sm rounded cursor-pointer transition-colors ${
+                            selectedFile === f.path
+                              ? 'bg-blue-900/40 text-blue-300'
+                              : 'hover:bg-gray-800 text-gray-300'
+                          }`}
+                        >
+                          <span className={`text-xs font-mono w-8 ${f.status === 'A' ? 'text-green-400' : f.status === 'D' ? 'text-red-400' : 'text-blue-400'}`}>{f.status}</span>
+                          <span className="truncate">{f.path}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {/* Diff 视图 */}
+                <div className="flex-1 border-t border-gray-700 overflow-y-auto">
+                  {selectedFile ? (
+                    diffLoading ? (
+                      <div className="flex items-center justify-center h-32 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin mr-2" />加载中...</div>
+                    ) : fileDiff && fileDiff.hunks && fileDiff.hunks.length > 0 ? (
+                      <div className="font-mono text-xs leading-relaxed">
+                        {/* 文件头 */}
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/80 border-b border-gray-700/50 sticky top-0 z-10">
+                          <FileCode className="w-4 h-4 text-blue-400" />
+                          <span className="text-sm font-medium text-gray-200">{fileDiff.file}</span>
+                          <span className="text-xs text-green-400 ml-2">+{fileDiff.added}</span>
+                          <span className="text-xs text-red-400">-{fileDiff.removed}</span>
+                        </div>
+                        {/* Hunks */}
+                        {fileDiff.hunks.map((hunk, hunkIdx) => (
+                          <div key={hunkIdx}>
+                            <div className="flex items-center gap-2 px-4 py-1 bg-gray-800/60 border-b border-gray-700/30">
+                              <span className="text-gray-400">{hunk.header}</span>
+                            </div>
+                            {hunk.lines.map((line, lineIdx) => (
+                              <div
+                                key={lineIdx}
+                                className={`flex px-4 ${
+                                  line.type === 'added' ? 'diff-line-added' : line.type === 'removed' ? 'diff-line-removed' : 'diff-line-context'
+                                }`}
+                              >
+                                <span className="diff-line-number w-[45px] text-right select-none">{line.oldLineNo ?? ''}</span>
+                                <span className="diff-line-number w-[45px] text-right select-none">{line.newLineNo ?? ''}</span>
+                                <span className="flex-1 whitespace-pre px-1">{line.content}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-32 text-gray-500 text-sm">该文件无差异内容（如二进制文件）</div>
+                    )
+                  ) : (
+                    <div className="flex items-center justify-center h-32 text-gray-500 text-sm">
+                      <div className="text-center"><FileCode className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>选择一个文件查看差异</p></div>
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <div className="flex items-center justify-center h-32 text-gray-500 text-sm">无法加载提交详情</div>
             )}
