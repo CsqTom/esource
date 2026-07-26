@@ -173,6 +173,10 @@ const electronAPI = {
     delete: (repoPath: string, name: string): Promise<void> =>
       ipcRenderer.invoke("tag:delete", repoPath, name),
   },
+  git: {
+    setCredential: (url: string, username: string, password: string): Promise<void> =>
+      ipcRenderer.invoke("git:setCredential", url, username, password),
+  },
   stash: {
     list: (repoPath: string): Promise<SerializedStash[]> =>
       ipcRenderer.invoke("stash:list", repoPath),

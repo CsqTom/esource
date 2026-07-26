@@ -33,5 +33,6 @@ export interface ElectronAPI {
   stash: { list(repoPath: string): Promise<SerializedStash[]>; save(repoPath: string, message?: string): Promise<void>; pop(repoPath: string, index?: number): Promise<void>; apply(repoPath: string, index: number): Promise<void>; drop(repoPath: string, index: number): Promise<void>; };
   shell: { openPath(filePath: string): Promise<void>; showItemInFolder(filePath: string): void; openTerminal(dirPath: string): Promise<void>; };
   file: { remove(repoPath: string, filePath: string): Promise<void>; };
+  git: { setCredential(url: string, username: string, password: string): Promise<void>; };
 }
 export {};

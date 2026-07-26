@@ -202,4 +202,40 @@ export function registerRepoHandlers() {
       }
     },
   );
+
+  // ── Git 凭据管理 ──
+  ipcMain.handle(
+    "git:setCredential",
+    async (
+      _event,
+      url: string,
+      username: string,
+      password: string,
+    ): Promise<void> => {
+      // 启用 credential.helper store（持久化存储凭据）
+      const git = getGit("");
+      try {
+        await git.raw([
+          "config",
+          "--global",
+          "credential.helper",
+          "store",
+        ]);
+      } catch {}
+      // 写入凭据到 git credential store
+      const input = `url=${url}\nusername=${username}\npassword=${password}\n`;
+      return new Promise((resolve, reject) => {
+        const child = exec(
+          "git credential approve",
+          { encoding: "utf-8" },
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          },
+        );
+        child.stdin?.write(input);
+        child.stdin?.end();
+      });
+    },
+  );
 }

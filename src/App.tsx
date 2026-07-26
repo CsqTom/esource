@@ -4,6 +4,7 @@ import type { FileChangeItem } from './types';
 import { RepoList } from './components/repo/RepoList';
 import { CloneDialog } from './components/repo/CloneDialog';
 import { PullProgressDialog } from './components/remote/PullProgressDialog';
+import { CredentialDialog } from './components/remote/CredentialDialog';
 import { PushDialog } from './components/remote/PushDialog';
 import { BranchPanel } from './components/branch/BranchPanel';
 import { FileList } from './components/workdir/FileList';
@@ -39,6 +40,8 @@ export default function App() {
   const [showPullProgress, setShowPullProgress] = useState(false);
   const [showPushDialog, setShowPushDialog] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
+  const [credentialUrl, setCredentialUrl] = useState<string | null>(null);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
 
   // 暂存区宽度（可拖动调整）
   const filePanelDivider = ResizableDivider({
@@ -127,7 +130,13 @@ export default function App() {
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.pull(activeRepo!.path, remote, branch),
     onSuccess: () => { invalidateRepoState(); setShowPullProgress(false); setPullError(null); },
     onError: (err) => {
-      setPullError(String((err as any)?.message || err || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, ''));
+      const msg = String((err as any)?.message || err || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, '');
+      setPullError(msg);
+      // 认证错误时弹出凭据对话框
+      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
+        setCredentialError(msg);
+      }
     },
   });
   const handlePull = useCallback((remote: string, branch: string) => { setPullError(null); pullMutation.mutate({ remote, branch }); }, [pullMutation]);
@@ -153,11 +162,37 @@ export default function App() {
   const pushMutation = useMutation({
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.push(activeRepo!.path, remote, branch),
     onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); },
+    onError: (err) => {
+      const msg = String((err as any)?.message || err || '');
+      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
+        setCredentialError(msg);
+      }
+    },
   });
   const handlePush = useCallback((remote: string, branch: string) => pushMutation.mutate({ remote, branch }), [pushMutation]);
   const pushError = pushMutation.isError ? String(pushMutation.error?.message || pushMutation.error || '').replace(/^Error: Error invoking remote method 'remote:push': Error: /, '') : null;
-  const fetchMutation = useMutation({ mutationFn: () => window.electronAPI.remote.fetch(activeRepo!.path), onSuccess: invalidateRepoState, onError: (err) => console.error('获取失败:', err) });
+  const fetchMutation = useMutation({
+    mutationFn: () => window.electronAPI.remote.fetch(activeRepo!.path),
+    onSuccess: invalidateRepoState,
+    onError: (err) => {
+      const msg = String((err as any)?.message || err || '');
+      if (/authentication failed|could not read username|could not read password|request cancelled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
+        setCredentialError(msg);
+      }
+      console.error('获取失败:', err);
+    },
+  });
 
+  // 凭据对话框
+  const handleCredentialSave = useCallback(async (url: string, username: string, password: string) => {
+    await window.electronAPI.git.setCredential(url, username, password);
+    setCredentialUrl(null);
+    setCredentialError(null);
+  }, []);
+
+  
   // 自动获取：启动时获取一次，之后每 5 分钟定时获取（不使用 mutation，避免依赖循环）
   useEffect(() => {
     if (!activeRepo) return;
@@ -304,6 +339,15 @@ export default function App() {
           error={pushError}
           onClose={() => setShowPushDialog(false)}
           onPush={handlePush}
+        />
+      )}
+      {/* 凭据对话框：git 认证失败时弹出 */}
+      {credentialUrl && (
+        <CredentialDialog
+          url={credentialUrl}
+          errorMessage={credentialError || ''}
+          onClose={() => { setCredentialUrl(null); setCredentialError(null); }}
+          onSave={handleCredentialSave}
         />
       )}
     </div>
