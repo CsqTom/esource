@@ -42,8 +42,12 @@ export default function App() {
   const [pullError, setPullError] = useState<string | null>(null);
   const [credentialUrl, setCredentialUrl] = useState<string | null>(null);
   const [credentialError, setCredentialError] = useState<string | null>(null);
-  // 记录最近一次因认证失败的操作，用于保存凭据后自动重试
-  const pendingRetry = useRef<{ remote: string; branch: string } | null>(null);
+  // 保存凭据后自动重试的待定操作
+  const [credentialPendingAction, setCredentialPendingAction] = useState<{
+    type: 'pull' | 'push' | 'fetch';
+    remote?: string;
+    branch?: string;
+  } | null>(null);
 
   // 暂存区宽度（可拖动调整）
   const filePanelDivider = ResizableDivider({
@@ -131,17 +135,14 @@ export default function App() {
   const pullMutation = useMutation({
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.pull(activeRepo!.path, remote, branch),
     onSuccess: () => { invalidateRepoState(); setShowPullProgress(false); setPullError(null); },
-    onError: (err) => {
-      const msg = String((err as any)?.message || err || '');
+    onError: (err, variables) => {
+      const msg = String((err as any)?.message || err || '').replace(/^Error: Error invoking remote method 'remote:pull': Error: /, '');
       setPullError(msg);
-      // 认证错误时记录参数并弹出凭据对话框
-      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
-        // 从错误信息中提取 URL（如 "could not read Username for 'http://...'"）
-        const urlMatch = msg.match(/'([^']+)'/);
-        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
+      // 认证错误时弹出凭据对话框并记录待定操作
+      if (/authentication failed|could not read username|could not read password|terminal prompts disabled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
         setCredentialError(msg);
-        const lastPull = pullMutation.variables;
-        if (lastPull) pendingRetry.current = lastPull;
+        setCredentialPendingAction({ type: 'pull', remote: variables.remote, branch: variables.branch });
       }
     },
   });
@@ -168,12 +169,12 @@ export default function App() {
   const pushMutation = useMutation({
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.push(activeRepo!.path, remote, branch),
     onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); },
-    onError: (err) => {
+    onError: (err, variables) => {
       const msg = String((err as any)?.message || err || '');
-      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
-        const urlMatch = msg.match(/'([^']+)'/);
-        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
+      if (/authentication failed|could not read username|could not read password|terminal prompts disabled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
         setCredentialError(msg);
+        setCredentialPendingAction({ type: 'push', remote: variables.remote, branch: variables.branch });
       }
     },
   });
@@ -184,10 +185,10 @@ export default function App() {
     onSuccess: invalidateRepoState,
     onError: (err) => {
       const msg = String((err as any)?.message || err || '');
-      if (/terminal prompts disabled|could not read|authentication failed|authorization failed|401|403|request cancelled/i.test(msg)) {
-        const urlMatch = msg.match(/'([^']+)'/);
-        setCredentialUrl(urlMatch?.[1] || activeRepo?.remoteUrl || '');
+      if (/authentication failed|could not read username|could not read password|terminal prompts disabled|401|403/i.test(msg)) {
+        setCredentialUrl(activeRepo?.remoteUrl || '');
         setCredentialError(msg);
+        setCredentialPendingAction({ type: 'fetch' });
       }
       console.error('获取失败:', err);
     },
@@ -195,17 +196,36 @@ export default function App() {
 
   // 凭据对话框：保存后自动重试挂起的操作
   const handleCredentialSave = useCallback(async (url: string, username: string, password: string) => {
-    await window.electronAPI.git.setCredential(url, username, password);
+    if (!activeRepo) return;
+    // 查找匹配 URL 的远程名，否则默认 origin
+    let remote = 'origin';
+    try {
+      const remotes = await window.electronAPI.remote.list(activeRepo.path);
+      const matched = remotes.find(r => r.refs.fetch === url || r.refs.push === url);
+      if (matched) remote = matched.name;
+    } catch {}
+    await window.electronAPI.git.setCredential(activeRepo.path, remote, url, username, password);
     setCredentialUrl(null);
     setCredentialError(null);
-    // 自动重试上次因认证失败的操作
-    const retry = pendingRetry.current;
-    pendingRetry.current = null;
-    if (retry) {
-      setPullError(null);
-      pullMutation.mutate(retry);
+    // 保存凭据后自动重试之前失败的操作
+    const pending = credentialPendingAction;
+    setCredentialPendingAction(null);
+    if (pending) {
+      if (pending.type === 'pull') {
+        setPullError(null);
+        setShowPullProgress(true);
+        pullMutation.mutate({ remote: pending.remote!, branch: pending.branch! });
+      } else if (pending.type === 'push') {
+        pushMutation.mutate({ remote: pending.remote!, branch: pending.branch! });
+      } else if (pending.type === 'fetch') {
+        fetchMutation.mutate();
+      }
     }
-  }, [pullMutation]);
+    // 刷新仓库状态
+    queryClient.invalidateQueries({ queryKey: ['status', activeRepo.path] });
+    queryClient.invalidateQueries({ queryKey: ['remotes', activeRepo.path] });
+    queryClient.invalidateQueries({ queryKey: ['repos'] });
+  }, [activeRepo, queryClient, credentialPendingAction, pullMutation, pushMutation, fetchMutation]);
 
   
   // 自动获取：启动时获取一次，之后每 5 分钟定时获取（不使用 mutation，避免依赖循环）
@@ -361,7 +381,7 @@ export default function App() {
         <CredentialDialog
           url={credentialUrl}
           errorMessage={credentialError || ''}
-          onClose={() => { setCredentialUrl(null); setCredentialError(null); }}
+          onClose={() => { setCredentialUrl(null); setCredentialError(null); setCredentialPendingAction(null); }}
           onSave={handleCredentialSave}
         />
       )}

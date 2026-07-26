@@ -103,7 +103,7 @@ export function CredentialDialog({
 
           {/* 提示 */}
           <p className="text-xs text-gray-500">
-            凭据将保存到 git credential store，下次操作自动使用。
+            凭据将嵌入远程仓库 URL，后续操作自动使用。
           </p>
 
           {/* 保存错误 */}

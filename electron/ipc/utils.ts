@@ -4,7 +4,50 @@ import path from "path";
 import os from "os";
 
 export function getGit(repoPath: string): SimpleGit {
-  return simpleGit(repoPath).env("GIT_TERMINAL_PROMPT", "0");
+  return simpleGit(repoPath).env('GIT_TERMINAL_PROMPT', '0');
+}
+
+/** 将用户名密码嵌入到远程 URL 中 */
+export function embedCredentialsInUrl(url: string, username: string, password: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = encodeURIComponent(username);
+    parsed.password = encodeURIComponent(password);
+    return parsed.toString();
+  } catch {
+    // URL 解析失败时回退：手动插入凭据
+    const match = url.match(/^(https?:\/\/)(.*)$/);
+    if (match) {
+      const protocol = match[1];
+      const rest = match[2];
+      return `${protocol}${encodeURIComponent(username)}:${encodeURIComponent(password)}@${rest}`;
+    }
+    return url;
+  }
+}
+
+/** 从 URL 中提取主机名（用于匹配远程） */
+export function extractHostFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** 从 URL 中移除凭据（用于显示） */
+export function stripCredentialsFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      parsed.username = '';
+      parsed.password = '';
+      return parsed.toString().replace(/\/\/@/, '//');
+    }
+    return url;
+  } catch {
+    return url;
+  }
 }
 
 export function serializeStatus(summary: any): SerializedStatus {
