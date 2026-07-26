@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Download, Archive, Trash2 } from 'lucide-react';
+import { X, Download, Archive, Trash2, GitBranch, AlertCircle } from 'lucide-react';
 import type { SerializedRemote, SerializedBranch } from '../../types';
 
 interface PullProgressDialogProps {
@@ -199,6 +199,104 @@ export function PullProgressDialog({
             )}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// src/components/branch/CheckoutDialog.tsx
+
+interface CheckoutDialogProps {
+  targetBranch: string;           // 目标分支（如 'origin/feature' 或 'feature'）
+  localBranchName: string;        // 本地分支名（如 'feature'，用于显示）
+  willCreateLocal: boolean;       // 是否会新建本地跟踪分支
+  isOperating: boolean;           // 是否正在切换
+  error: string | null;           // 错误信息
+  onClose: () => void;
+  onCheckout: () => void;               // 直接切换（工作区干净时不会走到这里）
+  onStashAndCheckout: () => void;       // 暂存后切换
+  onDiscardAndCheckout: () => void;     // 放弃修改后切换
+}
+
+export function CheckoutDialog({
+  targetBranch,
+  localBranchName,
+  willCreateLocal,
+  isOperating,
+  error,
+  onClose,
+  onStashAndCheckout,
+  onDiscardAndCheckout,
+}: CheckoutDialogProps) {
+  return (
+    <div className="fixed z-50" style={{ top: '68px', left: '20px', right: '20px' }}>
+      <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl">
+        {isOperating ? (
+          /* 切换中：进度条 */
+          <div className="p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-200 mb-3">
+              <GitBranch className="w-4 h-4 animate-pulse" />
+              正在切换到 {localBranchName}...
+            </div>
+            <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+          </div>
+        ) : error ? (
+          /* 切换失败：显示错误 */
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">!</span>
+                切换失败
+              </div>
+              <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <pre className="text-xs text-gray-300 bg-gray-900/60 rounded p-3 max-h-[200px] overflow-auto whitespace-pre-wrap">{error}</pre>
+          </div>
+        ) : (
+          /* 工作区有修改：选择处理方式 */
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-400" />
+                <h3 className="text-sm font-medium text-gray-200">工作区有未提交的修改</h3>
+              </div>
+              <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 目标分支信息 */}
+            <div className="mb-3 text-xs text-gray-400 bg-gray-900/40 rounded p-2">
+              {willCreateLocal ? (
+                <>将创建本地分支 <span className="text-blue-400">{localBranchName}</span> 并跟踪 <span className="text-gray-300">{targetBranch}</span></>
+              ) : (
+                <>切换到分支 <span className="text-blue-400">{localBranchName}</span></>
+              )}
+            </div>
+
+            {/* 三个操作选项 */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onStashAndCheckout}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded text-xs font-medium transition-colors"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                暂存后切换
+              </button>
+              <button
+                onClick={onDiscardAndCheckout}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded text-xs font-medium transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                放弃修改并切换
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

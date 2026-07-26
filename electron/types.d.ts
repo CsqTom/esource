@@ -22,6 +22,7 @@ interface SerializedBranch {
   tracking?: string; // 跟踪的远程分支（如 'esource/master'）
   ahead?: number; // 领先提交数
   behind?: number; // 落后提交数
+  date?: number; // 最后提交时间戳（毫秒）
 }
 
 interface SerializedStatus {

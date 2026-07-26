@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { SerializedRepository, FileChangeItem } from './types';
+import type { FileChangeItem } from './types';
 import { RepoList } from './components/repo/RepoList';
 import { CloneDialog } from './components/repo/CloneDialog';
 import { PullProgressDialog } from './components/remote/PullProgressDialog';
@@ -16,7 +16,7 @@ import { RemotePanel } from './components/remote/RemotePanel';
 import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
 import { ResizableDivider } from './components/common/ResizableDivider';
-import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode, X, AlertCircle } from 'lucide-react';
+import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode } from 'lucide-react';
 
 type ViewMode = 'diff' | 'log' | 'tags' | 'stash' | 'remote' | 'branch';
 
@@ -101,7 +101,6 @@ export default function App() {
 
   const filteredFiles = fileChanges.filter((f) => { if (activeTab === 'staged') return f.staged; return !f.staged; });
 
-  const checkoutMutation = useMutation({ mutationFn: (branchName: string) => window.electronAPI.branch.checkout(activeRepo!.path, branchName), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['branches', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['repos'] }); } });
   const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); setSelectedFile(null); } });
@@ -308,7 +307,7 @@ export default function App() {
       case 'tags': return <TagPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
       case 'stash': return <StashPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
       case 'remote': return <RemotePanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
-      case 'branch': return <BranchPanel branches={branches} currentBranch={activeRepo.currentBranch} onCheckout={(branch) => checkoutMutation.mutate(branch)} onClose={() => setActiveView('diff')} repoPath={activeRepo.path} />;
+      case 'branch': return <BranchPanel branches={branches} currentBranch={activeRepo.currentBranch} onClose={() => setActiveView('diff')} repoPath={activeRepo.path} />;
       case 'diff':
       default:
         if (selectedFile && diff) {

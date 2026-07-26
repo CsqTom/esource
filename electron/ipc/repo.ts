@@ -31,6 +31,16 @@ export function registerRepoHandlers() {
     const git = getGit(repoPath);
     const branches: SerializedBranch[] = [];
 
+    // 批量获取所有分支的最后提交时间（本地 + 远程）
+    const refDates = new Map<string, number>();
+    try {
+      const refOutput = await git.raw(['for-each-ref', '--format=%(refname:short)|%(committerdate:unix)', 'refs/heads/', 'refs/remotes/']);
+      for (const line of refOutput.split('\n').filter(Boolean)) {
+        const [ref, unix] = line.split('|');
+        if (ref && unix) refDates.set(ref, parseInt(unix, 10) * 1000);
+      }
+    } catch {}
+
     // 获取本地分支详细信息（包含跟踪关系和 ahead/behind）
     const localBranchesOutput = await git.raw(['branch', '-vv']);
     const localBranchLines = localBranchesOutput.split('\n').filter(Boolean);
@@ -71,6 +81,7 @@ export function registerRepoHandlers() {
         tracking,
         ahead,
         behind,
+        date: refDates.get(name),
       });
     }
 
@@ -84,6 +95,7 @@ export function registerRepoHandlers() {
           commit: info.commit,
           label: info.label,
           remote: true,
+          date: refDates.get(name),
         });
       }
     }
@@ -91,6 +103,67 @@ export function registerRepoHandlers() {
     return branches;
   });
   ipcMain.handle('branch:checkout', async (_event, repoPath: string, branchName: string): Promise<void> => { await getGit(repoPath).checkout(branchName); });
+  ipcMain.handle('branch:checkoutRemote', async (_event, repoPath: string, remoteBranchName: string): Promise<{ localName: string; created: boolean }> => {
+    const git = getGit(repoPath);
+    // 解析远程分支名：'origin/feature' -> remote='origin', branch='feature'
+    const parts = remoteBranchName.split('/');
+    const remote = parts[0];
+    const localName = parts.slice(1).join('/');
+
+    // 检查本地分支是否已存在并跟踪该远程分支
+    const localBranches = await git.branch(['-vv']);
+    const existingBranch = localBranches.all.find((b) => b === localName);
+
+    if (existingBranch) {
+      // 本地分支已存在，直接切换（simple-git 的 checkout 会处理跟踪关系）
+      await git.checkout(localName);
+      return { localName, created: false };
+    }
+
+    // 本地分支不存在，创建并设置跟踪：git checkout -b <localName> --track <remote>/<branch>
+    await git.raw(['checkout', '-b', localName, '--track', `${remote}/${localName}`]);
+    return { localName, created: true };
+  });
+  /** 暂存 → 检出 → 恢复（用于解决工作区不干净时的检出冲突） */
+  ipcMain.handle('branch:checkoutWithStash', async (_event, repoPath: string, branchName: string, remoteBranchName?: string): Promise<void> => {
+    const git = getGit(repoPath);
+    // 1. stash 本地修改
+    await git.raw(['stash', 'push', '-m', `Auto-stash before checkout to ${remoteBranchName || branchName}`]);
+    try {
+      // 2. 检出（远程分支时创建跟踪分支，本地分支时直接切换）
+      if (remoteBranchName) {
+        const parts = remoteBranchName.split('/');
+        const remote = parts[0];
+        const localName = parts.slice(1).join('/');
+        await git.raw(['checkout', '-b', localName, '--track', `${remote}/${localName}`]);
+      } else {
+        await git.checkout(branchName);
+      }
+      // 3. pop stash 恢复（如果失败则保留在 stash 列表中）
+      try { await git.raw(['stash', 'pop']); } catch (popErr) {
+        console.error('Stash pop 失败，冲突可能需要手动解决:', popErr);
+      }
+    } catch (checkoutErr) {
+      // 检出失败时恢复 stash
+      try { await git.raw(['stash', 'pop']); } catch {}
+      throw checkoutErr;
+    }
+  });
+  /** 放弃本地修改 → 检出（用于解决工作区不干净时的检出冲突） */
+  ipcMain.handle('branch:checkoutWithDiscard', async (_event, repoPath: string, branchName: string, remoteBranchName?: string): Promise<void> => {
+    const git = getGit(repoPath);
+    // 1. reset --hard 放弃所有本地修改
+    await git.raw(['reset', '--hard', 'HEAD']);
+    // 2. 检出（远程分支时创建跟踪分支，本地分支时直接切换）
+    if (remoteBranchName) {
+      const parts = remoteBranchName.split('/');
+      const remote = parts[0];
+      const localName = parts.slice(1).join('/');
+      await git.raw(['checkout', '-b', localName, '--track', `${remote}/${localName}`]);
+    } else {
+      await git.checkout(branchName);
+    }
+  });
   ipcMain.handle('branch:create', async (_event, repoPath: string, name: string, base?: string): Promise<void> => { await getGit(repoPath).branch([name, base || 'HEAD']); });
   ipcMain.handle('branch:delete', async (_event, repoPath: string, name: string): Promise<void> => { await getGit(repoPath).branch(['-D', name]); });
   ipcMain.handle('branch:merge', async (_event, repoPath: string, branch: string): Promise<string> => { return (await getGit(repoPath).merge([branch]))?.result || '合并成功'; });
