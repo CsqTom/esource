@@ -12,7 +12,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "preview": "vite preview",
     "electron:dev": "electron .",
-    "dist": "electron-builder"
+    "dist": "npm run build && electron-builder"
   },
   "keywords": [
     "git",
