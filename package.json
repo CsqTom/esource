@@ -12,7 +12,8 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "preview": "vite preview",
     "electron:dev": "electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux deb"
   },
   "keywords": [
     "git",
@@ -31,6 +32,16 @@
     ],
     "directories": {
       "output": "dist-release"
+    },
+    "linux": {
+      "target": ["deb"],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "maintainer": "eSource Team",
+      "description": "Git GUI desktop client - SourceTree alternative"
+    },
+    "deb": {
+      "icon": "build/icon.png"
     }
   },
   "dependencies": {
