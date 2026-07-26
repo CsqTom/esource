@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { SerializedRepository } from '../../types';
 import {
   GitBranch, Download, Upload, RefreshCw, Search, Plus, FolderOpen, Trash2, Menu,
-  History, Tag, Archive, Globe, PanelLeftClose, PanelLeftOpen,
+  History, Tag, Archive, Globe, PanelLeftClose, PanelLeftOpen, Terminal,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -65,7 +65,7 @@ export function Header({
       {/* 仓库选择器 */}
       <div className="relative">
         <button onClick={() => setShowRepoMenu(!showRepoMenu)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors max-w-[160px]">
+          className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors max-w-[280px]">
           <FolderOpen className="w-4 h-4 flex-shrink-0" />
           <span className="truncate">{activeRepo.name}</span>
           <Menu className="w-3 h-3 text-gray-400" />
@@ -79,8 +79,8 @@ export function Header({
                   <div key={repo.id} onClick={() => { onSelectRepo(repo); setShowRepoMenu(false); }}
                     className={`group flex items-center gap-2 px-3 py-2 rounded cursor-pointer text-sm ${repo.id === activeRepo.id ? 'bg-blue-900/40 text-blue-300' : 'text-gray-300 hover:bg-gray-700'}`}>
                     <FolderOpen className="w-4 h-4 flex-shrink-0" />
-                    <div className="flex-1 min-w-0"><div className="truncate">{repo.name}</div><div className="text-xs text-gray-500 truncate">{repo.path}</div></div>
-                    <button onClick={(e) => { e.stopPropagation(); onRemoveRepo(repo.id); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-900/50 rounded"><Trash2 className="w-3 h-3 text-red-400" /></button>
+                    <div className="flex-1 min-w-0"><div className="truncate" title={`${repo.name}\n${repo.path}`}>{repo.name}</div></div>
+                    <button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openPath(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-yellow-900/50 rounded" title="在资源管理器打开"><FolderOpen className="w-3 h-3 text-yellow-400" /></button><button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openTerminal(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-green-900/50 rounded" title="打开终端"><Terminal className="w-3 h-3 text-green-400" /></button><button onClick={(e) => { e.stopPropagation(); onRemoveRepo(repo.id); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-red-900/50 rounded" title="移除仓库"><Trash2 className="w-3 h-3 text-red-400" /></button>
                   </div>
                 ))}
               </div>

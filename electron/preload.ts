@@ -185,5 +185,18 @@ const electronAPI = {
     drop: (repoPath: string, index: number): Promise<void> =>
       ipcRenderer.invoke("stash:drop", repoPath, index),
   },
+  shell: {
+    openPath: (filePath: string): Promise<void> =>
+      ipcRenderer.invoke("shell:openPath", filePath),
+    showItemInFolder: (filePath: string): void => {
+      ipcRenderer.send("shell:showItemInFolder", filePath);
+    },
+    openTerminal: (dirPath: string): Promise<void> =>
+      ipcRenderer.invoke("shell:openTerminal", dirPath),
+  },
+  file: {
+    remove: (repoPath: string, filePath: string): Promise<void> =>
+      ipcRenderer.invoke("file:remove", repoPath, filePath),
+  },
 };
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

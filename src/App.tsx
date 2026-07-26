@@ -16,13 +16,15 @@ import { RemotePanel } from './components/remote/RemotePanel';
 import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
 import { ResizableDivider } from './components/common/ResizableDivider';
-import { GitBranch, GitCommit, Download, Upload, RefreshCw, Plus, FolderOpen, FileCode } from 'lucide-react';
+import { GitBranch, GitCommit, Download, RefreshCw, Plus, FolderOpen, FileCode } from 'lucide-react';
 
 type ViewMode = 'diff' | 'log' | 'tags' | 'stash' | 'remote' | 'branch';
 
 export default function App() {
   const queryClient = useQueryClient();
-  const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(() => {
+    try { return localStorage.getItem('lastActiveRepoId'); } catch { return null; }
+  });
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // 提交草稿按仓库区分，避免不同项目互相影响
@@ -178,7 +180,13 @@ export default function App() {
   const handleAddRepo = useCallback(async () => { try { await window.electronAPI.repo.add(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('添加仓库失败:', err); } }, [queryClient]);
   const handleInitRepo = useCallback(async () => { try { await window.electronAPI.repo.init(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('初始化仓库失败:', err); } }, [queryClient]);
   const handleClone = useCallback(async (url: string, destPath: string) => { await window.electronAPI.repo.clone(url, destPath); queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient]);
-  const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); setSelectedFile(null); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
+  const handleSelectRepo = useCallback((repoId: string) => {
+    setActiveRepoId(repoId);
+    setSelectedFile(null);
+    try { localStorage.setItem('lastActiveRepoId', repoId); } catch {}
+  }, []);
+
+  const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); try { localStorage.removeItem('lastActiveRepoId'); } catch {} setSelectedFile(null); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
   const handleStageAll = useCallback(() => stageMutation.mutate(['.']), [stageMutation]);
   const handleUnstageAll = useCallback(() => unstageMutation.mutate(['.']), [unstageMutation]);
   // 获取/设置当前仓库的提交草稿
@@ -209,7 +217,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
-      <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); }}
+      <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { handleSelectRepo(repo.id); }}
         onAddRepo={handleAddRepo} onCloneRepo={() => setShowCloneDialog(true)} onInitRepo={handleInitRepo} onRemoveRepo={handleRemoveRepo}
         onPull={() => {
           // 显示拉取进度面板
@@ -230,7 +238,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         {!sidebarCollapsed && (
         <div className="w-60 border-r border-gray-700 overflow-y-auto flex-shrink-0">
-          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { setActiveRepoId(repo.id); setSelectedFile(null); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} />
+          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { handleSelectRepo(repo.id); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} />
         </div>
         )}
         <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
@@ -243,7 +251,7 @@ export default function App() {
             <button onClick={handleUnstageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-orange-400 hover:bg-orange-900/30 rounded" title="取消暂存全部"><RefreshCw className="w-3 h-3" /> 取消暂存</button>
           </div>
           <div className="flex-1 overflow-y-auto">
-            <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} />
+            <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} />
           </div>
           <div className="border-t border-gray-700 p-3 bg-gray-800/50">
             {/* 最近提交选择器：全局共用，选中填充到提交框 */}

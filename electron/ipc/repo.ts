@@ -1,6 +1,7 @@
-import { ipcMain, dialog } from "electron";
+import { ipcMain, dialog, shell } from "electron";
 import path from "path";
 import fs from "fs";
+import { exec } from "child_process";
 import { getGit } from "./utils";
 import { loadStore, saveStore } from "./store";
 import type { RepoRecord } from "./store";
@@ -162,4 +163,43 @@ export function registerRepoHandlers() {
       addedAt: record.addedAt,
     };
   });
+
+  // ── 系统操作（fire-and-forget，避免 renderer 等待阻塞） ──
+  ipcMain.handle(
+    "shell:openPath",
+    async (_event, filePath: string): Promise<void> => {
+      const result = await shell.openPath(filePath);
+      if (result) throw new Error(result);
+    },
+  );
+  ipcMain.on("shell:showItemInFolder", (_event, filePath: string) => {
+    shell.showItemInFolder(filePath);
+  });
+
+  // ── 文件操作 ──
+  ipcMain.handle(
+    "file:remove",
+    async (_event, repoPath: string, filePath: string): Promise<void> => {
+      const fullPath = path.join(repoPath, filePath);
+      if (!fs.existsSync(fullPath)) throw new Error("文件不存在: " + filePath);
+      fs.unlinkSync(fullPath);
+    },
+  );
+
+  // ── 终端操作 ──
+  ipcMain.handle(
+    "shell:openTerminal",
+    async (_event, dirPath: string): Promise<void> => {
+      const platform = process.platform;
+      if (platform === "win32") {
+        exec(`start cmd /K "cd /d "${dirPath}""`, { windowsHide: true });
+      } else if (platform === "darwin") {
+        exec(`open -a Terminal "${dirPath}"`);
+      } else {
+        exec(`x-terminal-emulator --working-directory="${dirPath}"`, {
+          cwd: dirPath,
+        });
+      }
+    },
+  );
 }

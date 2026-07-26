@@ -8,6 +8,7 @@ interface FileListProps {
   onStageFile: (file: string) => void;
   onUnstageFile: (file: string) => void;
   onDiscardFile: (file: string) => void;
+  repoPath: string;
 }
 
 export function FileList({
@@ -17,6 +18,7 @@ export function FileList({
   onStageFile,
   onUnstageFile,
   onDiscardFile,
+  repoPath,
 }: FileListProps) {
   if (files.length === 0) {
     return (
@@ -37,6 +39,7 @@ export function FileList({
           onStage={() => onStageFile(file.path)}
           onUnstage={() => onUnstageFile(file.path)}
           onDiscard={() => onDiscardFile(file.path)}
+          repoPath={repoPath}
         />
       ))}
     </div>
