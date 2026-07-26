@@ -50,7 +50,7 @@ export function registerWorkdirHandlers() {
       hunkIndex: number,
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diff = await git.diff(["--unified=999999", file]);
+      const diff = await git.diff(["--unified=999999", "--", file]);
       const hunks = parseHunks(diff);
       if (hunks.length <= hunkIndex)
         throw new Error(`Hunk index ${hunkIndex} out of range`);
@@ -66,7 +66,7 @@ export function registerWorkdirHandlers() {
       hunkIndex: number,
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diff = await git.diff(["--cached", "--unified=999999", file]);
+      const diff = await git.diff(["--cached", "--unified=999999", "--", file]);
       const hunks = parseHunks(diff);
       if (hunks.length <= hunkIndex)
         throw new Error(`Hunk index ${hunkIndex} out of range`);
@@ -84,7 +84,7 @@ export function registerWorkdirHandlers() {
       staged: boolean = false,
     ): Promise<SerializedDiff> => {
       return parseDiff(
-        await getGit(repoPath).diff(staged ? ["--cached", file] : [file]),
+        await getGit(repoPath).diff(staged ? ["--cached", "--", file] : ["--", file]),
         file,
       );
     },
@@ -114,7 +114,7 @@ export function registerWorkdirHandlers() {
       selections: SelectionRange[],
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diffStr = await git.diff([file]);
+      const diffStr = await git.diff(["--", file]);
       const patch = buildPartialPatch(file, diffStr, selections);
       if (patch) await applyPatchFromFile(git, patch, ["--cached"]);
     },
@@ -128,7 +128,7 @@ export function registerWorkdirHandlers() {
       selections: SelectionRange[],
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diffStr = await git.diff(["--cached", "-R", file]);
+      const diffStr = await git.diff(["--cached", "-R", "--", file]);
       const patch = buildPartialPatch(file, diffStr, selections);
       if (patch) await applyPatchFromFile(git, patch, ["--cached"]);
     },
@@ -142,7 +142,7 @@ export function registerWorkdirHandlers() {
       selections: SelectionRange[],
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diffStr = await git.diff(["-R", file]);
+      const diffStr = await git.diff(["-R", "--", file]);
       const patch = buildPartialPatch(file, diffStr, selections);
       if (patch) await applyPatchFromFile(git, patch, []);
     },
