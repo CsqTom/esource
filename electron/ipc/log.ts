@@ -2,6 +2,19 @@ import { ipcMain } from "electron";
 import { getGit, parseLogOutput, parseDiff } from "./utils";
 
 export function registerLogHandlers() {
+  // ── 获取当前分支最近 N 条提交信息（用于提交框快速选择） ──
+  ipcMain.handle(
+    "log:recentMessages",
+    async (_event, repoPath: string): Promise<string[]> => {
+      const raw = await getGit(repoPath).raw([
+        "log",
+        "--format=%s",
+        "--max-count=10",
+        "HEAD",
+      ]);
+      return raw.split("\n").filter(Boolean);
+    },
+  );
   ipcMain.handle(
     "log:list",
     async (

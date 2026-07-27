@@ -164,6 +164,8 @@ const electronAPI = {
       ipcRenderer.invoke("log:fileDiff", repoPath, hash, filePath),
     graphJson: (repoPath: string, maxCount?: number): Promise<any[]> =>
       ipcRenderer.invoke("log:graphJson", repoPath, maxCount),
+    recentMessages: (repoPath: string): Promise<string[]> =>
+      ipcRenderer.invoke("log:recentMessages", repoPath),
   },
   tag: {
     list: (repoPath: string): Promise<SerializedTag[]> =>

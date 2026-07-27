@@ -30,10 +30,6 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // 提交草稿按仓库区分，避免不同项目互相影响
   const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
-  // 全局最近提交记录（localStorage，最近10条去重）
-  const [recentMessages, setRecentMessages] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('recentCommitMessages') || '[]'); } catch { return []; }
-  });
   const [activeView, setActiveView] = useState<ViewMode>('diff');
   const [activeTab, setActiveTab] = useState<'staged' | 'unstaged'>('unstaged');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -62,6 +58,9 @@ export default function App() {
 
   const { data: status } = useQuery({ queryKey: ['status', activeRepo?.path], queryFn: () => window.electronAPI.workdir.status(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 2_000, refetchInterval: 5_000 });
   const { data: branches = [] } = useQuery({ queryKey: ['branches', activeRepo?.path], queryFn: () => window.electronAPI.branch.list(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 5_000 });
+
+  // 从 git 当前分支读取最近 10 条提交记录（用于提交框快速选择）
+  const { data: recentMessages = [] } = useQuery({ queryKey: ['recentMessages', activeRepo?.path], queryFn: () => window.electronAPI.log.recentMessages(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 2_000 });
 
   const { data: diff, isFetching: diffLoading } = useQuery({
     queryKey: ['diff', activeRepo?.path, selectedFile, activeTab],
@@ -115,18 +114,15 @@ export default function App() {
   const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); setSelectedFile(null); } });
-  // 提交：成功后清空当前仓库草稿，记录到最近提交（去重，最多10条）
+  // 提交：成功后清空当前仓库草稿，刷新最近提交记录
   const commitMutation = useMutation({
     mutationFn: (message: string) => window.electronAPI.workdir.commit(activeRepo!.path, message),
-    onSuccess: (_data, message) => {
+    onSuccess: (_data, _message) => {
       // 清空当前仓库草稿
       if (activeRepo) setCommitDrafts(prev => { const next = { ...prev }; delete next[activeRepo.id]; return next; });
-      // 记录到最近提交（去重，最多10条）
-      const nextRecent = [message, ...recentMessages.filter(m => m !== message)].slice(0, 10);
-      setRecentMessages(nextRecent);
-      localStorage.setItem('recentCommitMessages', JSON.stringify(nextRecent));
       queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] });
       queryClient.invalidateQueries({ queryKey: ['repos'] });
+      queryClient.invalidateQueries({ queryKey: ['recentMessages', activeRepo?.path] });
     },
   });
   // 拉取/推送/获取：操作成功后刷新状态与仓库列表（更新 ahead/behind）
@@ -247,9 +243,35 @@ export default function App() {
     return () => { mounted = false; clearInterval(interval); };
   }, [activeRepo?.path]); // 仅当仓库切换时重新设置
 
-  const handleAddRepo = useCallback(async () => { try { await window.electronAPI.repo.add(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('添加仓库失败:', err); } }, [queryClient]);
-  const handleInitRepo = useCallback(async () => { try { await window.electronAPI.repo.init(); queryClient.invalidateQueries({ queryKey: ['repos'] }); } catch (err: any) { if (err.message !== '用户取消了选择') console.error('初始化仓库失败:', err); } }, [queryClient]);
-  const handleClone = useCallback(async (url: string, destPath: string) => { await window.electronAPI.repo.clone(url, destPath); queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient]);
+  const handleAddRepo = useCallback(async () => {
+    try {
+      const repo = await window.electronAPI.repo.add();
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+      // 切到新添加的仓库
+      setActiveRepoId(repo.id);
+      try { localStorage.setItem('lastActiveRepoId', repo.id); } catch {}
+    } catch (err: any) {
+      if (err.message !== '用户取消了选择') console.error('添加仓库失败:', err);
+    }
+  }, [queryClient]);
+  const handleInitRepo = useCallback(async () => {
+    try {
+      const repo = await window.electronAPI.repo.init();
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+      // 切到新初始化的仓库
+      setActiveRepoId(repo.id);
+      try { localStorage.setItem('lastActiveRepoId', repo.id); } catch {}
+    } catch (err: any) {
+      if (err.message !== '用户取消了选择') console.error('初始化仓库失败:', err);
+    }
+  }, [queryClient]);
+  const handleClone = useCallback(async (url: string, destPath: string) => {
+    const repo = await window.electronAPI.repo.clone(url, destPath);
+    queryClient.invalidateQueries({ queryKey: ['repos'] });
+    // 切到新克隆的仓库
+    setActiveRepoId(repo.id);
+    try { localStorage.setItem('lastActiveRepoId', repo.id); } catch {}
+  }, [queryClient]);
   const handleSelectRepo = useCallback((repoId: string) => {
     setActiveRepoId(repoId);
     setSelectedFile(null);
