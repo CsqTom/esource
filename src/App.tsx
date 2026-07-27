@@ -76,6 +76,16 @@ export default function App() {
 
   const ext = selectedFile?.split('.').pop()?.toLowerCase() || '';
   const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
+
+  // 获取文件大小（仅非图片的未跟踪文件）
+  const { data: fileSize = 0 } = useQuery({
+    queryKey: ['fileSize', activeRepo?.path, selectedFile],
+    queryFn: async () => { if (!selectedFile || !activeRepo?.path) return 0; return window.electronAPI.workdir.getFileSize(activeRepo.path, selectedFile); },
+    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked && !isImage,
+    staleTime: 10_000,
+  });
+  const isFileTooLarge = !isImage && isSelectedFileUntracked && fileSize > 1024 * 1024; // 超过 1MB
+
   const { data: untrackedContent } = useQuery({
     queryKey: ['fileContent', activeRepo?.path, selectedFile, isImage],
     queryFn: async () => {
@@ -83,7 +93,7 @@ export default function App() {
       if (isImage) { return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, true); }
       return window.electronAPI.workdir.readFile(activeRepo.path, selectedFile, false);
     },
-    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked, staleTime: 10_000,
+    enabled: !!activeRepo?.path && !!selectedFile && isSelectedFileUntracked && !isFileTooLarge, staleTime: 10_000,
   });
 
   const fileChanges: FileChangeItem[] = (() => {
@@ -423,7 +433,7 @@ export default function App() {
           if (activeTab === 'staged') {
             return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
           } else {
-            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
+            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} isFileTooLarge={isFileTooLarge} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
           }
         }
         return (

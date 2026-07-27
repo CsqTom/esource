@@ -8,12 +8,13 @@ interface DiffUnstageViewProps {
   isUntracked?: boolean;
   untrackedContent?: string;
   untrackedContentBase64?: string;
+  isFileTooLarge?: boolean;
   loading?: boolean;
   repoPath?: string;
   onActionComplete?: () => void;
 }
 
-export function DiffUnstageView({ diff, isUntracked, untrackedContent, untrackedContentBase64, loading, repoPath, onActionComplete }: DiffUnstageViewProps) {
+export function DiffUnstageView({ diff, isUntracked, untrackedContent, untrackedContentBase64, isFileTooLarge, loading, repoPath, onActionComplete }: DiffUnstageViewProps) {
   const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set());
   const [selectedLines, setSelectedLines] = useState<Map<string, Set<number>>>(new Map());
   const [lastClickedLine, setLastClickedLine] = useState<{ hunkIdx: number; lineIdx: number } | null>(null);
@@ -120,6 +121,7 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, untracked
           <FileCode className="w-4 h-4 text-green-400" />
           <span className="text-sm font-medium text-gray-200">{diff.file}</span>
           <span className="text-xs bg-green-900/40 text-green-300 px-1.5 py-0.5 rounded ml-2">未跟踪</span>
+          {isFileTooLarge && <span className="text-xs bg-yellow-900/40 text-yellow-300 px-1.5 py-0.5 rounded">文件过大(超1M)</span>}
           <div className="ml-auto flex items-center gap-1">
             <button onClick={handleStage} disabled={actionLoading}
               className="flex items-center gap-1 px-3 py-1 text-xs bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded transition-colors">
@@ -134,7 +136,17 @@ export function DiffUnstageView({ diff, isUntracked, untrackedContent, untracked
             <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-200">✕</button>
           </div>
         )}
-        <FileViewer filePath={diff.file} repoPath={repoPath || ''} content={untrackedContent} contentBase64={untrackedContentBase64} />
+        {isFileTooLarge ? (
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="text-center">
+              <FileCode className="w-12 h-12 mx-auto mb-2 opacity-30" />
+              <p className="text-lg font-medium text-gray-400">文件过大</p>
+              <p className="text-sm text-gray-600 mt-1">文件超过 1MB，不支持预览</p>
+            </div>
+          </div>
+        ) : (
+          <FileViewer filePath={diff.file} repoPath={repoPath || ''} content={untrackedContent} contentBase64={untrackedContentBase64} />
+        )}
       </div>
     );
   }

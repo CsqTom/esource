@@ -86,6 +86,8 @@ const electronAPI = {
       asBase64?: boolean,
     ): Promise<string> =>
       ipcRenderer.invoke("workdir:readFile", repoPath, file, asBase64),
+    getFileSize: (repoPath: string, file: string): Promise<number> =>
+      ipcRenderer.invoke("workdir:getFileSize", repoPath, file),
     stageLines: (
       repoPath: string,
       file: string,

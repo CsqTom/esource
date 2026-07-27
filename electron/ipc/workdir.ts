@@ -106,6 +106,14 @@ export function registerWorkdirHandlers() {
     },
   );
   ipcMain.handle(
+    "workdir:getFileSize",
+    async (_event, repoPath: string, file: string): Promise<number> => {
+      const fullPath = path.join(repoPath, file);
+      if (!fs.existsSync(fullPath)) return -1;
+      return fs.statSync(fullPath).size;
+    },
+  );
+  ipcMain.handle(
     "workdir:stageLines",
     async (
       _event,
