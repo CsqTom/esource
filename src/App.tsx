@@ -353,7 +353,7 @@ export default function App() {
             <button onClick={handleUnstageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-orange-400 hover:bg-orange-900/30 rounded" title="取消暂存全部"><RefreshCw className="w-3 h-3" /> 取消暂存</button>
           </div>
           <div className="flex-1 overflow-y-auto">
-            <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} />
+            <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
           </div>
           <div className="border-t border-gray-700 p-3 bg-gray-800/50">
             {/* 最近提交选择器：全局共用，选中填充到提交框 */}

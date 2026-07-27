@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { FileChangeItem } from '../../types';
-import { Plus, Undo2, RotateCcw, File, FilePlus, FileMinus, AlertTriangle, ExternalLink, FolderOpen, Trash2, Copy, Terminal } from 'lucide-react';
+import { Plus, Undo2, RotateCcw, File, FilePlus, FileMinus, AlertTriangle, ExternalLink, FolderOpen, Trash2, Copy, Terminal, Ban } from 'lucide-react';
+import { GitignoreDialog } from './GitignoreDialog';
 
 interface FileItemProps {
   file: FileChangeItem;
@@ -10,6 +11,7 @@ interface FileItemProps {
   onUnstage: () => void;
   onDiscard: () => void;
   repoPath: string;
+  onRefreshStatus?: () => void;
 }
 
 const statusConfig = {
@@ -34,14 +36,19 @@ export function FileItem({
   onUnstage,
   onDiscard,
   repoPath,
+  onRefreshStatus,
 }: FileItemProps) {
   const config = statusConfig[file.status];
   const Icon = config.icon;
   const tracked = isTracked(file);
+  const isUntracked = file.status === 'untracked';
 
   // 右键菜单状态
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Gitignore 对话框状态
+  const [showGitignoreDialog, setShowGitignoreDialog] = useState(false);
 
   // 用 ref 保存最新值，避免闭包过期
   const fileRef = useRef(file);
@@ -146,6 +153,22 @@ export function FileItem({
     const dirPath = getDirPath();
     window.electronAPI.shell.openTerminal(dirPath)
       .catch((err) => console.error('打开终端失败:', err?.message || err));
+  };
+
+  const handleGitignore = () => {
+    closeMenu();
+    setShowGitignoreDialog(true);
+  };
+
+  const handleGitignoreConfirm = async (rules: string[]) => {
+    setShowGitignoreDialog(false);
+    try {
+      await window.electronAPI.workdir.addToGitignore(repoPathRef.current, rules);
+      // 刷新状态
+      if (onRefreshStatus) onRefreshStatus();
+    } catch (err: any) {
+      console.error('添加忽略规则失败:', err?.message || err);
+    }
   };
 
   return (
@@ -295,6 +318,18 @@ export function FileItem({
             <Terminal className="w-4 h-4 text-green-400" />
             当前路径打开终端
           </button>
+          {isUntracked && (
+            <>
+              <div className="border-t border-gray-700 my-1" />
+              <button
+                onClick={handleGitignore}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors text-left"
+              >
+                <Ban className="w-4 h-4 text-orange-400" />
+                添加忽略
+              </button>
+            </>
+          )}
           <div className="border-t border-gray-700 my-1" />
           <button
             onClick={handleRemoveFile}
@@ -316,6 +351,15 @@ export function FileItem({
             恢复文件改动
           </button>
         </div>
+      )}
+
+      {showGitignoreDialog && (
+        <GitignoreDialog
+          repoPath={repoPathRef.current}
+          filePath={fileRef.current.path}
+          onClose={() => setShowGitignoreDialog(false)}
+          onConfirm={handleGitignoreConfirm}
+        />
       )}
     </>
   );

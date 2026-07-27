@@ -108,6 +108,10 @@ const electronAPI = {
       ipcRenderer.invoke("workdir:discardLines", repoPath, file, selections),
     commit: (repoPath: string, message: string): Promise<void> =>
       ipcRenderer.invoke("workdir:commit", repoPath, message),
+    addToGitignore: (repoPath: string, rules: string[]): Promise<void> =>
+      ipcRenderer.invoke("workdir:addToGitignore", repoPath, rules),
+    listAncestorDirs: (repoPath: string, filePath: string): Promise<string[]> =>
+      ipcRenderer.invoke("workdir:listAncestorDirs", repoPath, filePath),
   },
   remote: {
     list: (repoPath: string): Promise<SerializedRemote[]> =>
