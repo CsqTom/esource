@@ -261,9 +261,9 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
 
   // 详情面板宽度（可拖动调整）
   const detailPanelDivider = ResizableDivider({
-    initialWidth: 384, // w-96 = 384px
-    minWidth: 150, // 最小宽度调小，支持更窄的视图
-    maxWidth: 1200,
+    initialSize: 384, // w-96 = 384px
+    minSize: 150, // 最小宽度调小，支持更窄的视图
+    maxSize: 1200,
     direction: 'right',
   });
 

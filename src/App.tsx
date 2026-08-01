@@ -31,7 +31,8 @@ export default function App() {
   // 提交草稿按仓库区分，避免不同项目互相影响
   const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
   const [activeView, setActiveView] = useState<ViewMode>('diff');
-  const [activeTab, setActiveTab] = useState<'staged' | 'unstaged'>('unstaged');
+  // 当前选中文件是否为已暂存状态（同一 path 可能同时存在于 staged/unstaged，用此区分）
+  const [selectedFileStaged, setSelectedFileStaged] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showPullProgress, setShowPullProgress] = useState(false);
   const [showPushDialog, setShowPushDialog] = useState(false);
@@ -45,12 +46,19 @@ export default function App() {
     branch?: string;
   } | null>(null);
 
-  // 暂存区宽度（可拖动调整）
+  // 文件面板宽度（可拖动调整，水平方向）
   const filePanelDivider = ResizableDivider({
-    initialWidth: 384, // w-96 = 384px
-    minWidth: 150, // 最小宽度调小，支持更窄的视图
-    maxWidth: 600,
+    initialSize: 384, // w-96 = 384px
+    minSize: 150, // 最小宽度调小，支持更窄的视图
+    maxSize: 600,
     direction: 'left',
+  });
+  // 文件面板内"已暂存/未暂存"上下分区的拖动分隔条（垂直方向）
+  const stagedPanelDivider = ResizableDivider({
+    initialSize: 200, // 已暂存区初始高度
+    minSize: 60, // 最小高度，保证标题可见
+    maxSize: 500,
+    orientation: 'vertical',
   });
 
   const { data: repos = [], isLoading: reposLoading } = useQuery({ queryKey: ['repos'], queryFn: () => window.electronAPI.repo.list(), staleTime: 3_000 });
@@ -63,8 +71,8 @@ export default function App() {
   const { data: recentMessages = [] } = useQuery({ queryKey: ['recentMessages', activeRepo?.path], queryFn: () => window.electronAPI.log.recentMessages(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 2_000 });
 
   const { data: diff, isFetching: diffLoading } = useQuery({
-    queryKey: ['diff', activeRepo?.path, selectedFile, activeTab],
-    queryFn: async () => { if (!selectedFile) return null; return window.electronAPI.workdir.diff(activeRepo!.path, selectedFile, activeTab === 'staged'); },
+    queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged],
+    queryFn: async () => { if (!selectedFile) return null; return window.electronAPI.workdir.diff(activeRepo!.path, selectedFile, selectedFileStaged); },
     enabled: !!activeRepo?.path && !!selectedFile && activeView === 'diff',
     staleTime: 30_000, placeholderData: (prev) => prev,
   });
@@ -119,7 +127,9 @@ export default function App() {
     return items;
   })();
 
-  const filteredFiles = fileChanges.filter((f) => { if (activeTab === 'staged') return f.staged; return !f.staged; });
+  // 上下分区：分别取出已暂存与未暂存文件，避免 Tab 来回切换
+  const stagedFiles = fileChanges.filter((f) => f.staged);
+  const unstagedFiles = fileChanges.filter((f) => !f.staged);
 
   const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
   const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
@@ -295,7 +305,11 @@ export default function App() {
   const commitMessage = activeRepo ? (commitDrafts[activeRepo.id] || '') : '';
   const setCommitMessage = (msg: string) => { if (activeRepo) setCommitDrafts(prev => ({ ...prev, [activeRepo.id]: msg })); };
   const handleCommit = useCallback(() => { if (!commitMessage.trim()) return; commitMutation.mutate(commitMessage); }, [commitMessage, commitMutation]);
-  const handleFileClick = useCallback((file: FileChangeItem) => { setSelectedFile(file.path); setActiveView('diff'); }, []);
+  const handleFileClick = useCallback((file: FileChangeItem) => {
+    setSelectedFile(file.path);
+    setSelectedFileStaged(file.staged);
+    setActiveView('diff');
+  }, []);
   const handleStageFile = useCallback((file: string) => stageMutation.mutate([file]), [stageMutation]);
   const handleUnstageFile = useCallback((file: string) => unstageMutation.mutate([file]), [unstageMutation]);
   const handleDiscardFile = useCallback((file: string) => discardMutation.mutate([file]), [discardMutation]);
@@ -344,16 +358,37 @@ export default function App() {
         </div>
         )}
         <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
-          <div className="flex border-b border-gray-700">
-            <button onClick={() => setActiveTab('staged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'staged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>已暂存 ({fileChanges.filter((f) => f.staged).length})</button>
-            <button onClick={() => setActiveTab('unstaged')} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${activeTab === 'unstaged' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'}`}>未暂存 ({fileChanges.filter((f) => !f.staged).length})</button>
-          </div>
           <div className="flex gap-1 px-2 py-1 border-b border-gray-700 bg-gray-800/50">
             <button onClick={handleStageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-green-400 hover:bg-green-900/30 rounded" title="暂存全部"><Plus className="w-3 h-3" /> 全部暂存</button>
             <button onClick={handleUnstageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-orange-400 hover:bg-orange-900/30 rounded" title="取消暂存全部"><RefreshCw className="w-3 h-3" /> 取消暂存</button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <FileList files={filteredFiles} selectedFile={selectedFile} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
+          {/* 上：已暂存区（固定高度，可由分隔条调整） */}
+          <div style={{ height: stagedPanelDivider.size }} className="flex flex-col min-h-0 flex-shrink-0">
+            <div className="flex items-center px-3 py-1.5 bg-gray-800/80 border-b border-gray-700 flex-shrink-0">
+              <span className="text-xs font-medium text-blue-400">已暂存 ({stagedFiles.length})</span>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {stagedFiles.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-gray-600 text-xs">没有已暂存文件</div>
+              ) : (
+                <FileList files={stagedFiles} selectedFile={selectedFileStaged ? selectedFile : null} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
+              )}
+            </div>
+          </div>
+          {/* 上下分区拖动分隔条 */}
+          <div {...stagedPanelDivider.dividerProps} />
+          {/* 下：未暂存区（自适应剩余高度） */}
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="flex items-center px-3 py-1.5 bg-gray-800/80 border-b border-gray-700 flex-shrink-0">
+              <span className="text-xs font-medium text-gray-300">未暂存 ({unstagedFiles.length})</span>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {unstagedFiles.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-gray-600 text-xs">没有未暂存文件</div>
+              ) : (
+                <FileList files={unstagedFiles} selectedFile={!selectedFileStaged ? selectedFile : null} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
+              )}
+            </div>
           </div>
           <div className="border-t border-gray-700 p-3 bg-gray-800/50">
             {/* 最近提交选择器：全局共用，选中填充到提交框 */}
@@ -430,10 +465,10 @@ export default function App() {
       case 'diff':
       default:
         if (selectedFile && diff) {
-          if (activeTab === 'staged') {
-            return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
+          if (selectedFileStaged) {
+            return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged] }); }} />;
           } else {
-            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} isFileTooLarge={isFileTooLarge} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile] }); }} />;
+            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} isFileTooLarge={isFileTooLarge} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged] }); }} />;
           }
         }
         return (
