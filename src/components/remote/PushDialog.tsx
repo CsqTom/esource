@@ -66,7 +66,7 @@ export function PushDialog({ repoPath, currentBranch, isOperating, error, onClos
             </div>
           </div>
         ) : error ? (
-          // 推送失败：显示错误 + 关闭按钮
+          // 推送失败：显示错误 + 重试 + 关闭按钮
           <div className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-sm text-red-400">
@@ -78,6 +78,16 @@ export function PushDialog({ repoPath, currentBranch, isOperating, error, onClos
               </button>
             </div>
             <pre className="text-xs text-gray-300 bg-gray-900/60 rounded p-3 max-h-[200px] overflow-auto whitespace-pre-wrap">{error}</pre>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={handlePush}
+                disabled={!selectedRemote || !selectedBranch}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs font-medium transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                重试推送 {selectedRemote && selectedBranch ? `${selectedRemote}/${selectedBranch}` : ''}
+              </button>
+            </div>
           </div>
         ) : (
           // 选择界面

@@ -439,7 +439,7 @@ export default function App() {
           currentBranch={activeRepo.currentBranch}
           isOperating={pushMutation.isPending}
           error={pushError}
-          onClose={() => setShowPushDialog(false)}
+          onClose={() => { setShowPushDialog(false); pushMutation.reset(); }}
           onPush={handlePush}
         />
       )}
