@@ -91,6 +91,7 @@ interface SerializedTag {
   date: number;
   annotated: boolean;
   message?: string;
+  branches: string[];
 }
 
 interface SerializedStash {

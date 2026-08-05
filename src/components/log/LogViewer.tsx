@@ -1,10 +1,10 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SerializedCommit, SerializedDiff } from '../../types';
 import { ResizableDivider } from '../common/ResizableDivider';
 import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
-interface LogViewerProps { repoPath: string; onClose: () => void; }
+interface LogViewerProps { repoPath: string; onClose: () => void; focusHash?: string; }
 
 function formatDate(t: number): string {
   const d = new Date(t), n = new Date(), diff = n.getTime() - d.getTime();
@@ -236,6 +236,7 @@ function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick }: {
         <circle key="dot" cx={cx} cy={MID_Y} r={DOT_R} fill={isSelected ? '#60A5FA' : dotColor} stroke="#1F2937" strokeWidth={2} />
       </svg>
       <div className="flex-1 flex items-center min-w-0 gap-1 px-2" style={{ height: ROW_H }}>
+        <div className={`flex items-center min-w-0 gap-1 w-full h-full ${isSelected ? 'commit-row-selected' : ''}`}>
         {parsedRefs.map((r, i) => {
           // 标签固定黄色；远程跟踪分支灰色虚边框；本地分支/HEAD 徽章颜色与连线一致
           if (r.kind === 'tag') return <span key={`r-${i}`} className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] rounded bg-yellow-900/40 text-yellow-300 font-mono whitespace-nowrap" title={`标签: ${r.name}`}><Tag className="w-3 h-3" />{r.name}</span>;
@@ -247,13 +248,15 @@ function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick }: {
         <span className="text-xs text-gray-500 hidden sm:block truncate max-w-[100px]">{commit.author}</span>
         <span className="text-xs text-gray-500 hidden md:block whitespace-nowrap">{formatDate(commit.date)}</span>
         <code className="text-xs text-gray-500 font-mono hidden lg:block">{commit.hash.slice(0, 7)}</code>
+        </div>
       </div>
     </div>
   );
 }
 
-export function LogViewer({ repoPath, onClose }: LogViewerProps) {
+export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
+  const [pendingFocusHash, setPendingFocusHash] = useState<string | undefined>(focusHash);
   const [searchQuery, setSearchQuery] = useState('');
   const [maxCount, setMaxCount] = useState(100);
   const [activeTab, setActiveTab] = useState<'current' | 'all'>('current');
@@ -273,10 +276,11 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
     queryFn: () => window.electronAPI.branch.list(repoPath),
     staleTime: 30_000,
   });
-  const localBranchCount = useMemo(() => branches.filter(b => !b.remote).length, [branches]);
   // 远程分支名集合（用于所有分支视图中区分远程跟踪分支）
   const remoteRefSet = useMemo(() => new Set(branches.filter(b => b.remote).map(b => b.name)), [branches]);
-  const showTabs = localBranchCount > 1;
+  // 远程分支数量：远程有超过一个分支时即显示“所有分支”tab（不再以本地分支数判断）
+  const remoteBranchCount = useMemo(() => branches.filter(b => b.remote).length, [branches]);
+  const showTabs = remoteBranchCount > 1;
   // 只有一个分支时强制锁定在当前分支视图
   const effectiveTab = showTabs ? activeTab : 'current';
 
@@ -311,6 +315,20 @@ export function LogViewer({ repoPath, onClose }: LogViewerProps) {
   });
 
   const handleCopy = (hash: string) => navigator.clipboard?.writeText(hash);
+
+  // 从标签页跳转定位：选中并滚动到对应提交行。
+  // 为能一眼看到"标签指向的提交"与"最新提交"之间差多少，尽量把目标行定位在视口上部。
+  useEffect(() => {
+    if (!pendingFocusHash) return;
+    setSelectedHash(pendingFocusHash);
+    const idx = commits.findIndex((c) => c.hash === pendingFocusHash);
+    if (idx >= 0 && scrollRef.current) {
+      const el = scrollRef.current;
+      // 目标行尽量滚到视口顶部（上方留约 1 行空隙），从而其上、下内容（含最新项表头）都能看到
+      el.scrollTop = Math.max(0, idx * ROW_H - ROW_H);
+      setPendingFocusHash(undefined);
+    }
+  }, [pendingFocusHash, commits]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

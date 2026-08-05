@@ -10,8 +10,6 @@
     "dev:electron:no-vite": "cross-env NODE_ENV=development electron .",
     "build": "vite build && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "preview": "vite preview",
-    "electron:dev": "electron .",
     "dist": "npm run build && electron-builder"
   },
   "keywords": [

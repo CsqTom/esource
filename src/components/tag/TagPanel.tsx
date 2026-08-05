@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SerializedTag } from '../../types';
 import {
@@ -11,11 +11,15 @@ import {
   Clock,
   User,
   AlertCircle,
+  GitBranch,
+  ExternalLink,
 } from 'lucide-react';
 
 interface TagPanelProps {
   repoPath: string;
   onClose: () => void;
+  currentBranch?: string;
+  onViewCommitHistory?: (hash: string) => void;
 }
 
 function formatDate(timestamp: number): string {
@@ -25,7 +29,7 @@ function formatDate(timestamp: number): string {
   });
 }
 
-export function TagPanel({ repoPath, onClose }: TagPanelProps) {
+export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory }: TagPanelProps) {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -37,6 +41,12 @@ export function TagPanel({ repoPath, onClose }: TagPanelProps) {
     queryFn: () => window.electronAPI.tag.list(repoPath),
     staleTime: 5_000,
   });
+
+  // 按时间倒序排列，最新的标签在最前面
+  const sortedTags = useMemo(
+    () => [...tags].sort((a, b) => (b.date - a.date) || a.name.localeCompare(b.name)),
+    [tags],
+  );
 
   const createTagMutation = useMutation({
     mutationFn: ({ name, message }: { name: string; message?: string }) =>
@@ -147,14 +157,31 @@ export function TagPanel({ repoPath, onClose }: TagPanelProps) {
           <div className="flex items-center justify-center h-32 text-gray-500 text-sm">暂无标签</div>
         ) : (
           <div className="divide-y divide-gray-800">
-            {tags.map((tag) => (
+            {sortedTags.map((tag) => (
               <div key={tag.name} className="group flex items-center gap-3 px-4 py-3 hover:bg-gray-800/50 transition-colors">
                 <Tag className="w-4 h-4 text-yellow-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-100">{tag.name}</span>
+                    <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{tag.name}</span>
                     {tag.annotated && (
-                      <span className="text-xs bg-yellow-900/40 text-yellow-300 px-1.5 py-0.5 rounded">附注</span>
+                      <span className="text-xs bg-yellow-900/40 text-yellow-300 px-1.5 py-0.5 rounded whitespace-nowrap">附注</span>
+                    )}
+                    {tag.branches && tag.branches.length > 0 && (
+                      <span className="flex items-center gap-1 min-w-0">
+                        <GitBranch className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                        {tag.branches.map((b, i) => (
+                          <span
+                            key={b}
+                            className={`text-[11px] font-mono px-1 py-0.5 rounded whitespace-nowrap ${
+                              b === currentBranch
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-700 text-gray-300'
+                            }`}
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5">
@@ -170,6 +197,15 @@ export function TagPanel({ repoPath, onClose }: TagPanelProps) {
                     )}
                   </div>
                 </div>
+                {onViewCommitHistory && tag.commit && (
+                  <button
+                    onClick={() => onViewCommitHistory(tag.commit)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-blue-900/30 rounded text-blue-400 transition-all"
+                    title="在提交历史中查看该标签对应的提交"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (confirm(`确定删除标签 "${tag.name}"？`)) {

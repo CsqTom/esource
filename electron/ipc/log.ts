@@ -2,6 +2,20 @@ import { ipcMain } from "electron";
 import { getGit, parseLogOutput, parseDiff } from "./utils";
 
 export function registerLogHandlers() {
+  // ── 获取指定提交在 --all --date-order 日志中的行索引（0 起），用于日志跳转定位 ──
+  ipcMain.handle(
+    "log:position",
+    async (_event, repoPath: string, hash: string): Promise<number> => {
+      const raw = await getGit(repoPath).raw([
+        "log",
+        "--all",
+        "--date-order",
+        "--format=%H",
+      ]);
+      const lines = raw.split("\n").filter(Boolean);
+      return lines.indexOf(hash); // 找不到返回 -1
+    },
+  );
   // ── 获取当前分支最近 N 条提交信息（用于提交框快速选择） ──
   ipcMain.handle(
     "log:recentMessages",

@@ -176,7 +176,7 @@ export function FileItem({
       <div
         onClick={onClick}
         onContextMenu={handleContextMenu}
-        className={`group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${
+        className={`group flex items-center gap-2 px-3 py-0.5 cursor-pointer transition-colors ${
           isSelected
             ? 'selected-file'
             : 'hover:bg-gray-800'

@@ -31,6 +31,8 @@ export default function App() {
   // 提交草稿按仓库区分，避免不同项目互相影响
   const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
   const [activeView, setActiveView] = useState<ViewMode>('diff');
+  // 从标签页跳转到提交历史时，要定位/选中的提交 hash
+  const [logFocusHash, setLogFocusHash] = useState<string | undefined>(undefined);
   // 当前选中文件是否为已暂存状态（同一 path 可能同时存在于 staged/unstaged，用此区分）
   const [selectedFileStaged, setSelectedFileStaged] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -57,7 +59,7 @@ export default function App() {
   const stagedPanelDivider = ResizableDivider({
     initialSize: 200, // 已暂存区初始高度
     minSize: 60, // 最小高度，保证标题可见
-    maxSize: 500,
+    maxSize: 100000, // 不设上限，允许未暂存区缩到约 1 行
     orientation: 'vertical',
   });
 
@@ -184,7 +186,7 @@ export default function App() {
   // 推送：通过弹窗选择远程和分支，成功自动关闭，失败显示错误
   const pushMutation = useMutation({
     mutationFn: ({ remote, branch }: { remote: string; branch: string }) => window.electronAPI.remote.push(activeRepo!.path, remote, branch),
-    onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); },
+    onSuccess: () => { invalidateRepoState(); setShowPushDialog(false); setSelectedFile(null); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path] }); },
     onError: (err, variables) => {
       const msg = String((err as any)?.message || err || '');
       if (/authentication failed|could not read username|could not read password|terminal prompts disabled|401|403/i.test(msg)) {
@@ -457,8 +459,10 @@ export default function App() {
 
   function renderView() {
     switch (activeView) {
-      case 'log': return <LogViewer repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
-      case 'tags': return <TagPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
+      case 'log':
+        return <LogViewer repoPath={activeRepo.path} onClose={() => setActiveView('diff')} focusHash={logFocusHash} />;
+      case 'tags':
+        return <TagPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} currentBranch={activeRepo.currentBranch} onViewCommitHistory={(hash) => { setLogFocusHash(hash); setActiveView('log'); }} />;
       case 'stash': return <StashPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
       case 'remote': return <RemotePanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
       case 'branch': return <BranchPanel branches={branches} currentBranch={activeRepo.currentBranch} onClose={() => setActiveView('diff')} repoPath={activeRepo.path} />;

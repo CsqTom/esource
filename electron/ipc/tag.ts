@@ -15,16 +15,30 @@ export function registerTagHandlers() {
             "--format=%H|%aI|%s",
             "--no-patch",
             "--no-notes",
-            name,
+            // 剥壳附注标签到其指向的提交，避免取到 tag 对象自身的头信息
+            `${name}^{commit}`,
           ]);
           const parts = detail.trim().split("|");
+          const commit = parts[0] || "";
+          // 找出包含该标签所指向提交的分支（本地分支）
+          let branches: string[] = [];
+          try {
+            const contains = await git.raw(["branch", "--contains", commit]);
+            branches = contains
+              .split("\n")
+              .map((l) => l.trim().replace(/^\*\s*/, ""))
+              .filter(Boolean);
+          } catch {
+            // 提交可能已被删除，忽略
+          }
           tags.push({
             name,
-            commit: parts[0] || "",
+            commit,
             label: name,
             date: new Date(parts[1] || "").getTime(),
             annotated: false,
             message: parts[2] || "",
+            branches,
           });
         } catch {
           tags.push({
@@ -33,6 +47,7 @@ export function registerTagHandlers() {
             label: name,
             date: 0,
             annotated: false,
+            branches: [],
           });
         }
       }
