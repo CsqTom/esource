@@ -110,6 +110,14 @@ interface SerializedRemote {
   };
 }
 
+interface SerializedMergeResult {
+  status: "success" | "conflict" | "up-to-date";
+  branch: string;
+  message: string;
+  conflicts?: string[];
+  filesAccessed?: string[];
+}
+
 interface LogQueryOptions {
   maxCount?: number;
   branch?: string;

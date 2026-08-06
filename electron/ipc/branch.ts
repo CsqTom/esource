@@ -211,8 +211,53 @@ export function registerBranchHandlers() {
   );
   ipcMain.handle(
     "branch:merge",
-    async (_event, repoPath: string, branch: string): Promise<string> => {
-      return (await getGit(repoPath).merge([branch]))?.result || "合并成功";
+    async (
+      _event,
+      repoPath: string,
+      branch: string,
+    ): Promise<SerializedMergeResult> => {
+      const git = getGit(repoPath);
+      try {
+        const summary = await git.merge([branch]);
+
+        // 已是最新：git 输出 "Already up to date."，无合并发生
+        if (
+          summary.result === "success" &&
+          summary.merges.length === 0 &&
+          summary.conflicts.length === 0
+        ) {
+          return {
+            status: "up-to-date",
+            branch,
+            message: `分支 "${branch}" 已是最新，无需合并。`,
+          };
+        }
+
+        return {
+          status: "success",
+          branch,
+          message: `已将 "${branch}" 合并到当前分支。`,
+          filesAccessed: summary.merges,
+        };
+      } catch (err: any) {
+        // 合并冲突：simple-git 会抛出携带 merge 详情的 GitResponseError
+        const merge = err?.git as
+          | { conflicts?: { reason: string; file: string | null }[] }
+          | undefined;
+        if (merge && Array.isArray(merge.conflicts) && merge.conflicts.length > 0) {
+          return {
+            status: "conflict",
+            branch,
+            message: `合并 "${branch}" 时产生冲突，请解决冲突后提交。`,
+            conflicts: merge.conflicts.map(
+              (c) => (c.file ? `${c.file} (${c.reason})` : String(c.reason)),
+            ),
+          };
+        }
+        // 其他错误（如工作区不干净、文件会被覆盖等）
+        const msg = String(err?.message || err || "合并失败");
+        throw new Error(msg);
+      }
     },
   );
 }

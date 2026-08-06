@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { SerializedBranch } from '../../types';
+import { SerializedBranch, SerializedMergeResult } from '../../types';
 import {
   GitBranch,
   GitFork,
@@ -11,6 +11,9 @@ import {
   Merge,
   Search,
   ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { CheckoutDialog } from '../remote/PullProgressDialog';
 
@@ -76,6 +79,11 @@ export function BranchPanel({
     error: null,
   });
 
+  // 合并结果弹窗状态
+  const [mergePendingBranch, setMergePendingBranch] = useState<string | null>(null);
+  const [mergeResult, setMergeResult] = useState<SerializedMergeResult | null>(null);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+
   // 重置检出状态
   const resetCheckoutState = useCallback(() => {
     setCheckoutState({
@@ -112,11 +120,33 @@ export function BranchPanel({
   const mergeBranchMutation = useMutation({
     mutationFn: (branch: string) =>
       window.electronAPI.branch.merge(repoPath, branch),
-    onSuccess: () => {
+    onSuccess: (result, branch) => {
+      // 无论成功、已最新还是冲突，都展示结果弹窗
+      setMergePendingBranch(null);
+      setMergeResult(result);
+      setMergeError(null);
       queryClient.invalidateQueries({ queryKey: ['branches', repoPath] });
       queryClient.invalidateQueries({ queryKey: ['status', repoPath] });
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+      // 冲突时记录冲突文件，便于后续处理
+      if (result.status === 'conflict' && result.conflicts) {
+        queryClient.invalidateQueries({ queryKey: ['status', repoPath] });
+      }
+    },
+    onError: (err: any) => {
+      const msg = String((err as any)?.message || err || '合并失败');
+      setMergePendingBranch(null);
+      setMergeResult(null);
+      setMergeError(msg);
     },
   });
+
+  const handleMerge = useCallback((branch: string) => {
+    setMergeResult(null);
+    setMergeError(null);
+    setMergePendingBranch(branch);
+    mergeBranchMutation.mutate(branch);
+  }, [mergeBranchMutation]);
 
   // 跟踪分支 checkout（远程分支 → 自动创建本地跟踪分支）
   const checkoutRemoteMutation = useMutation({
@@ -445,7 +475,7 @@ export function BranchPanel({
             isCurrent={branch.name === currentBranch}
             onCheckout={() => handleCheckout(branch, false)}
             onDelete={() => deleteBranchMutation.mutate(branch.name)}
-            onMerge={() => mergeBranchMutation.mutate(branch.name)}
+            onMerge={() => handleMerge(branch.name)}
           />
         ))}
 
@@ -472,13 +502,28 @@ export function BranchPanel({
                   hasLocalTracking={hasLocalTracking}
                   onCheckout={() => handleCheckout(branch, true)}
                   onDelete={undefined}
-                  onMerge={undefined}
+                  onMerge={() => handleMerge(branch.name)}
                 />
               );
             })}
           </>
         )}
       </div>
+
+      {/* 合并结果弹窗 */}
+      {(mergePendingBranch || mergeResult || mergeError) && (
+        <MergeFeedbackDialog
+          branch={mergePendingBranch || mergeResult?.branch || ''}
+          isOperating={mergeBranchMutation.isPending}
+          result={mergeResult}
+          error={mergeError}
+          onClose={() => {
+            setMergePendingBranch(null);
+            setMergeResult(null);
+            setMergeError(null);
+          }}
+        />
+      )}
 
       {/* 检出进度 / 冲突 / 错误对话框 */}
       {(checkoutState.phase !== 'idle') && (
@@ -616,6 +661,103 @@ function BranchItem({ branch, isCurrent, hasLocalTracking, onCheckout, onDelete,
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+interface MergeFeedbackDialogProps {
+  branch: string;
+  isOperating: boolean;
+  result: SerializedMergeResult | null;
+  error: string | null;
+  onClose: () => void;
+}
+
+function MergeFeedbackDialog({
+  branch,
+  isOperating,
+  result,
+  error,
+  onClose,
+}: MergeFeedbackDialogProps) {
+  return (
+    <div className="fixed z-50" style={{ top: '68px', left: '20px', right: '20px' }}>
+      <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl">
+        {isOperating ? (
+          /* 合并中：进度条 */
+          <div className="p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-200 mb-3">
+              <Merge className="w-4 h-4 animate-pulse" />
+              正在合并 {branch} 到当前分支...
+            </div>
+            <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-purple-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+          </div>
+        ) : error ? (
+          /* 合并失败（非冲突，如工作区不干净） */
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">!</span>
+                合并失败
+              </div>
+              <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <pre className="text-xs text-gray-300 bg-gray-900/60 rounded p-3 max-h-[200px] overflow-auto whitespace-pre-wrap">{error}</pre>
+          </div>
+        ) : result ? (
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm">
+                {result.status === 'success' ? (
+                  <span className="flex items-center gap-2 text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    合并成功
+                  </span>
+                ) : result.status === 'up-to-date' ? (
+                  <span className="flex items-center gap-2 text-blue-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    已是最新
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2 text-yellow-400">
+                    <AlertCircle className="w-4 h-4" />
+                    产生合并冲突
+                  </span>
+                )}
+              </div>
+              <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-200">{result.message}</p>
+            {result.conflicts && result.conflicts.length > 0 && (
+              <div className="mt-3">
+                <div className="text-xs text-gray-500 mb-1">冲突文件：</div>
+                <div className="bg-gray-900/60 rounded p-2 max-h-[160px] overflow-auto">
+                  {result.conflicts.map((c, i) => (
+                    <div key={i} className="text-xs text-yellow-300 font-mono py-0.5">{c}</div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">请在工作区解决冲突后提交。</p>
+              </div>
+            )}
+            {result.filesAccessed && result.filesAccessed.length > 0 && (
+              <div className="mt-3">
+                <div className="text-xs text-gray-500 mb-1">自动合并的文件：</div>
+                <div className="bg-gray-900/60 rounded p-2 max-h-[160px] overflow-auto">
+                  {result.filesAccessed.map((f, i) => (
+                    <div key={i} className="text-xs text-gray-300 font-mono py-0.5">{f}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

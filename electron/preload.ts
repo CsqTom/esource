@@ -46,7 +46,7 @@ const electronAPI = {
       ipcRenderer.invoke("branch:create", repoPath, name, base),
     delete: (repoPath: string, name: string): Promise<void> =>
       ipcRenderer.invoke("branch:delete", repoPath, name),
-    merge: (repoPath: string, branch: string): Promise<string> =>
+    merge: (repoPath: string, branch: string): Promise<SerializedMergeResult> =>
       ipcRenderer.invoke("branch:merge", repoPath, branch),
   },
   workdir: {
