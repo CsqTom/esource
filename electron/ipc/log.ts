@@ -39,6 +39,7 @@ export function registerLogHandlers() {
       const opts: string[] = [`--max-count=${options?.maxCount || 50}`];
       if (options?.author) opts.push(`--author=${options.author}`);
       if (options?.since) opts.push(`--since=${options.since}`);
+      if (options?.search) opts.push(`--grep=${options.search}`, "--regexp-ignore-case");
       if (options?.all)
         opts.push(
           "--decorate",
