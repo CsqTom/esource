@@ -95,6 +95,7 @@
 /* 选中高亮 */
 .selected-file {
   @apply bg-blue-900/30 border-l-2 border-blue-500;
+  box-shadow: inset 0 -1px 0 0 #3b82f6;
 }
 
 /* 提交历史选中行：底部蓝色条（仅文字内容区，box-shadow 不改变行高不影响 graph 对齐） */

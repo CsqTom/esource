@@ -28,6 +28,7 @@ export default function App() {
   });
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]); // 多选文件列表
   // 提交草稿按仓库区分，避免不同项目互相影响
   const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
   const [activeView, setActiveView] = useState<ViewMode>('diff');
@@ -47,6 +48,8 @@ export default function App() {
     remote?: string;
     branch?: string;
   } | null>(null);
+  // 用于 Shift 范围选择
+  const lastClickedIndexRef = useRef<number | null>(null);
 
   // 文件面板宽度（可拖动调整，水平方向）
   const filePanelDivider = ResizableDivider({
@@ -307,14 +310,73 @@ export default function App() {
   const commitMessage = activeRepo ? (commitDrafts[activeRepo.id] || '') : '';
   const setCommitMessage = (msg: string) => { if (activeRepo) setCommitDrafts(prev => ({ ...prev, [activeRepo.id]: msg })); };
   const handleCommit = useCallback(() => { if (!commitMessage.trim()) return; commitMutation.mutate(commitMessage); }, [commitMessage, commitMutation]);
-  const handleFileClick = useCallback((file: FileChangeItem) => {
+
+  // 文件点击：处理单选/多选逻辑
+  const handleFileClick = useCallback((file: FileChangeItem, e?: React.MouseEvent) => {
+    const currentFiles = stagedFiles.concat(unstagedFiles);
+    const idx = currentFiles.findIndex(f => f.path === file.path);
+
+    if (e && (e.ctrlKey || e.metaKey)) {
+      // Ctrl+Click：切换选中状态
+      e.stopPropagation();
+      setSelectedFiles(prev => {
+        if (prev.includes(file.path)) {
+          return prev.filter(p => p !== file.path);
+        } else {
+          return [...prev, file.path];
+        }
+      });
+    } else if (e && e.shiftKey && lastClickedIndexRef.current !== null) {
+      // Shift+Click：范围选择
+      e.stopPropagation();
+      const lastIdx = lastClickedIndexRef.current;
+      if (idx !== -1 && lastIdx !== null) {
+        const start = Math.min(lastIdx, idx);
+        const end = Math.max(lastIdx, idx);
+        const rangeFiles = currentFiles.slice(start, end + 1).map(f => f.path);
+        setSelectedFiles(prev => Array.from(new Set([...prev, ...rangeFiles])));
+      }
+    } else {
+      // 普通点击：清空多选，单选
+      setSelectedFiles([file.path]);
+      lastClickedIndexRef.current = null;
+    }
+
+    // 更新最后点击的索引（用于后续 Shift 范围选择）
+    if (idx !== -1) {
+      lastClickedIndexRef.current = idx;
+    }
+
+    // 无论哪种点击，都更新当前查看的文件
     setSelectedFile(file.path);
     setSelectedFileStaged(file.staged);
     setActiveView('diff');
-  }, []);
-  const handleStageFile = useCallback((file: string) => stageMutation.mutate([file]), [stageMutation]);
-  const handleUnstageFile = useCallback((file: string) => unstageMutation.mutate([file]), [unstageMutation]);
-  const handleDiscardFile = useCallback((file: string) => discardMutation.mutate([file]), [discardMutation]);
+  }, [stagedFiles, unstagedFiles]);
+
+  // 暂存/取消暂存/丢弃：如果有多选文件，则对所有选中文件执行操作
+  const handleStageFile = useCallback((file: string) => {
+    if (selectedFiles.length > 1) {
+      stageMutation.mutate(selectedFiles);
+    } else {
+      stageMutation.mutate([file]);
+    }
+  }, [stageMutation, selectedFiles]);
+
+  const handleUnstageFile = useCallback((file: string) => {
+    if (selectedFiles.length > 1) {
+      unstageMutation.mutate(selectedFiles);
+    } else {
+      unstageMutation.mutate([file]);
+    }
+  }, [unstageMutation, selectedFiles]);
+
+  const handleDiscardFile = useCallback((file: string) => {
+    if (selectedFiles.length > 1) {
+      discardMutation.mutate(selectedFiles);
+    } else {
+      discardMutation.mutate([file]);
+    }
+  }, [discardMutation, selectedFiles]);
 
   if (!reposLoading && repos.length === 0) {
     return (
@@ -360,20 +422,29 @@ export default function App() {
         </div>
         )}
         <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
-          <div className="flex gap-1 px-2 py-1 border-b border-gray-700 bg-gray-800/50">
-            <button onClick={handleStageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-green-400 hover:bg-green-900/30 rounded" title="暂存全部"><Plus className="w-3 h-3" /> 全部暂存</button>
-            <button onClick={handleUnstageAll} className="flex items-center gap-1 px-2 py-1 text-xs text-orange-400 hover:bg-orange-900/30 rounded" title="取消暂存全部"><RefreshCw className="w-3 h-3" /> 取消暂存</button>
-          </div>
           {/* 上：已暂存区（固定高度，可由分隔条调整） */}
           <div style={{ height: stagedPanelDivider.size }} className="flex flex-col min-h-0 flex-shrink-0">
             <div className="flex items-center px-3 py-1.5 bg-gray-800/80 border-b border-gray-700 flex-shrink-0">
               <span className="text-xs font-medium text-blue-400">已暂存 ({stagedFiles.length})</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => { setSelectedFiles(stagedFiles.map(f => f.path)); unstageMutation.mutate(stagedFiles.map(f => f.path)); }} className="flex items-center gap-1 px-2 py-0.5 text-xs text-orange-400 border border-orange-900/50 hover:bg-orange-900/30 rounded" title="取消所有暂存"><RefreshCw className="w-3 h-3" /> 取消所有暂存</button>
+                <button onClick={() => { if (selectedFiles.length > 0) unstageMutation.mutate(selectedFiles); }} className="flex items-center gap-1 px-2 py-0.5 text-xs text-orange-400 border border-orange-900/50 hover:bg-orange-900/30 rounded" title="取消选定暂存">取消选定暂存</button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto min-h-0">
               {stagedFiles.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-gray-600 text-xs">没有已暂存文件</div>
               ) : (
-                <FileList files={stagedFiles} selectedFile={selectedFileStaged ? selectedFile : null} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
+                <FileList
+                  files={stagedFiles}
+                  selectedFiles={selectedFiles}
+                  onFileClick={handleFileClick}
+                  onStageFile={handleStageFile}
+                  onUnstageFile={handleUnstageFile}
+                  onDiscardFile={handleDiscardFile}
+                  repoPath={activeRepo.path}
+                  onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })}
+                />
               )}
             </div>
           </div>
@@ -383,12 +454,25 @@ export default function App() {
           <div className="flex flex-col flex-1 min-h-0">
             <div className="flex items-center px-3 py-1.5 bg-gray-800/80 border-b border-gray-700 flex-shrink-0">
               <span className="text-xs font-medium text-gray-300">未暂存 ({unstagedFiles.length})</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => { setSelectedFiles(unstagedFiles.map(f => f.path)); stageMutation.mutate(unstagedFiles.map(f => f.path)); }} className="flex items-center gap-1 px-2 py-0.5 text-xs text-green-400 border border-green-900/50 hover:bg-green-900/30 rounded" title="暂存所有未暂存文件"><Plus className="w-3 h-3" /> 暂存所有</button>
+                <button onClick={() => { if (selectedFiles.length > 0) stageMutation.mutate(selectedFiles); }} className="flex items-center gap-1 px-2 py-0.5 text-xs text-green-400 border border-green-900/50 hover:bg-green-900/30 rounded" title="暂存所选文件">暂存所选</button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto min-h-0">
               {unstagedFiles.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-gray-600 text-xs">没有未暂存文件</div>
               ) : (
-                <FileList files={unstagedFiles} selectedFile={!selectedFileStaged ? selectedFile : null} onFileClick={handleFileClick} onStageFile={handleStageFile} onUnstageFile={handleUnstageFile} onDiscardFile={handleDiscardFile} repoPath={activeRepo.path} onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })} />
+                <FileList
+                  files={unstagedFiles}
+                  selectedFiles={selectedFiles}
+                  onFileClick={handleFileClick}
+                  onStageFile={handleStageFile}
+                  onUnstageFile={handleUnstageFile}
+                  onDiscardFile={handleDiscardFile}
+                  repoPath={activeRepo.path}
+                  onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })}
+                />
               )}
             </div>
           </div>

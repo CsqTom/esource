@@ -6,7 +6,7 @@ import { GitignoreDialog } from './GitignoreDialog';
 interface FileItemProps {
   file: FileChangeItem;
   isSelected: boolean;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   onStage: () => void;
   onUnstage: () => void;
   onDiscard: () => void;
