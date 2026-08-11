@@ -249,24 +249,51 @@ export default function App() {
   }, [activeRepo, queryClient, credentialPendingAction, pullMutation, pushMutation, fetchMutation]);
 
   
-  // 自动获取：启动时获取一次，之后每 5 分钟定时获取（不使用 mutation，避免依赖循环）
+  const reposRef = useRef(repos);
+  useEffect(() => { reposRef.current = repos; }, [repos]);
+
+  // 自动获取所有仓库（共享逻辑，供启动延迟/窗口恢复/定时器复用）
+  const doFetchAll = useCallback(async () => {
+    const currentRepos = [...reposRef.current];
+    if (!currentRepos.length) return;
+    const results = await Promise.allSettled(
+      currentRepos.map((repo) =>
+        Promise.race([
+          window.electronAPI.remote.fetch(repo.path),
+          new Promise<void>((resolve) => setTimeout(resolve, 30_000)),
+        ]).then(() => undefined),
+      ),
+    );
+    queryClient.invalidateQueries({ queryKey: ['repos'] });
+    results.filter((r) => r.status === 'rejected').forEach((r) =>
+      console.error('自动获取失败:', r.reason),
+    );
+  }, [queryClient]);
+
+  // 程序启动 2 秒后获取所有项目一次
   useEffect(() => {
-    if (!activeRepo) return;
+    const timer = setTimeout(doFetchAll, 2000);
+    return () => clearTimeout(timer);
+  }, [doFetchAll]);
+
+  // 最小化到恢复正常大小后 2 秒后获取一次
+  useEffect(() => {
     let mounted = true;
-    const doFetch = async () => {
-      try {
-        await window.electronAPI.remote.fetch(activeRepo.path);
-        if (mounted) invalidateRepoState();
-      } catch (err) {
-        console.error('自动获取失败:', err);
-      }
+    const handleRestore = () => {
+      setTimeout(() => { if (mounted) doFetchAll(); }, 2000);
     };
-    // 启动时获取一次
-    doFetch();
-    // 定时获取（每 5 分钟）
-    const interval = setInterval(doFetch, 5 * 60 * 1000);
-    return () => { mounted = false; clearInterval(interval); };
-  }, [activeRepo?.path]); // 仅当仓库切换时重新设置
+    window.addEventListener('esource:fetch-all-repos', handleRestore);
+    return () => {
+      mounted = false;
+      window.removeEventListener('esource:fetch-all-repos', handleRestore);
+    };
+  }, [doFetchAll]);
+
+  // 定时器：每 5 分钟获取所有项目
+  useEffect(() => {
+    const interval = setInterval(doFetchAll, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [doFetchAll]);
 
   const handleAddRepo = useCallback(async () => {
     try {

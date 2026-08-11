@@ -5,6 +5,11 @@ import { registerRepoHandlers } from "./ipc/repo";
 const isDev = process.env.NODE_ENV === "development";
 
 let mainWindow: BrowserWindow | null = null;
+let wasMinimized = false;
+
+function sendFetchAllSignal() {
+  mainWindow?.webContents?.send("esource:fetch-all-repos");
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -34,7 +39,12 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
+  // 监听窗口从最小化恢复：恢复后通知渲染进程获取所有项目
+  mainWindow.on("minimize", () => { wasMinimized = true; });
+  mainWindow.on("restore", () => { wasMinimized = false; sendFetchAllSignal(); });
+
   mainWindow.on("closed", () => {
+    wasMinimized = false;
     mainWindow = null;
   });
 }
