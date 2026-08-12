@@ -96,10 +96,7 @@ export function FileItem({
     closeMenu();
     const fp = fileRef.current.path;
     const rp = repoPathRef.current;
-    // 使用 shell.openPath 打开父目录（跨平台兼容性更好）
-    const dirPath = fp.includes('/') ? fp.substring(0, fp.lastIndexOf('/')) : '.';
-    window.electronAPI.shell.openPath(rp + '/' + dirPath)
-      .catch((err) => console.error('打开文件夹失败:', err?.message || err));
+    window.electronAPI.shell.showItemInFolder(rp + '/' + fp);
   };
 
   const handleRemoveFile = async () => {
@@ -316,7 +313,7 @@ export function FileItem({
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors text-left"
           >
             <Terminal className="w-4 h-4 text-green-400" />
-            当前路径打开终端
+            终端
           </button>
           {isUntracked && (
             <>

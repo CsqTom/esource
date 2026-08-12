@@ -95,7 +95,7 @@ export function Header({
                     <GripVertical className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 cursor-grab" title="拖动排序" />
                     <FolderOpen className="w-4 h-4 flex-shrink-0" />
                     <div className="flex-1 min-w-0"><div className="truncate" title={`${repo.name}\n${repo.path}`}>{repo.name}</div></div>
-                    <button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openPath(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-yellow-900/50 rounded" title="在资源管理器打开"><FolderOpen className="w-3 h-3 text-yellow-400" /></button><button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openTerminal(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-green-900/50 rounded" title="打开终端"><Terminal className="w-3 h-3 text-green-400" /></button><button onClick={(e) => { e.stopPropagation(); onRemoveRepo(repo.id); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-red-900/50 rounded" title="移除仓库"><Trash2 className="w-3 h-3 text-red-400" /></button>
+                    <button onClick={(e) => { e.stopPropagation(); onRemoveRepo(repo.id); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-red-900/50 rounded" title="移除仓库"><Trash2 className="w-3 h-3 text-red-400" /></button>
                   </div>
                 ))}
               </div>
@@ -141,6 +141,14 @@ export function Header({
         <button onClick={onFetch} disabled={isFetching}
           className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="获取（仅发现远程变更，不合并）">
           <Search className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} /><span className="hidden md:inline">获取</span>
+        </button>
+        <button onClick={() => window.electronAPI.shell.openPath(activeRepo.path).catch(console.error)}
+          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors" title="在资源管理器打开">
+          <FolderOpen className="w-3.5 h-3.5 text-yellow-400" />
+        </button>
+        <button onClick={() => window.electronAPI.shell.openTerminal(activeRepo.path).catch(console.error)}
+          className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors" title="打开终端">
+          <Terminal className="w-3.5 h-3.5 text-green-400" />
         </button>
       </div>
 
