@@ -2,7 +2,7 @@ import { ipcMain, dialog, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { getGit, embedCredentialsInUrl, stripCredentialsFromUrl } from "./utils";
 import { loadStore, saveStore } from "./store";
 import type { RepoRecord } from "./store";
@@ -12,6 +12,79 @@ import { registerRemoteHandlers } from "./remote";
 import { registerLogHandlers } from "./log";
 import { registerTagHandlers } from "./tag";
 import { registerStashHandlers } from "./stash";
+
+/**
+ * Open a directory through Windows' default shell action.
+ *
+ * Electron's shell.openPath() uses Chromium's hard-coded "explore" verb for
+ * directories on Windows, while shell.showItemInFolder() uses Explorer's COM
+ * API directly. Both routes can bypass replacements such as Total Commander
+ * that register themselves as the default Directory shell action.
+ *
+ * ProcessStartInfo with UseShellExecute=true and no explicit verb asks Windows
+ * to run the registered default action instead. The script is passed through
+ * -EncodedCommand so paths containing shell metacharacters cannot become code.
+ */
+function openDirectoryWithDefaultShell(dirPath: string): Promise<void> {
+  const escapedPath = dirPath.replace(/'/g, "''");
+  const script = [
+    "$startInfo = [System.Diagnostics.ProcessStartInfo]::new()",
+    `$startInfo.FileName = '${escapedPath}'`,
+    "$startInfo.UseShellExecute = $true",
+    "$process = [System.Diagnostics.Process]::Start($startInfo)",
+    "if ($null -eq $process) { throw 'Windows Shell failed to open the directory' }",
+  ].join("; ");
+  const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        encodedCommand,
+      ],
+      { windowsHide: true },
+      (error) => {
+        if (error) reject(error);
+        else resolve();
+      },
+    );
+  });
+}
+
+async function openDirectory(dirPath: string): Promise<void> {
+  const normalizedPath = path.resolve(dirPath);
+  if (!fs.existsSync(normalizedPath) || !fs.statSync(normalizedPath).isDirectory()) {
+    throw new Error("目录不存在: " + normalizedPath);
+  }
+
+  if (process.platform === "win32") {
+    await openDirectoryWithDefaultShell(normalizedPath);
+    return;
+  }
+
+  const result = await shell.openPath(normalizedPath);
+  if (result) throw new Error(result);
+}
+
+function findExistingDirectory(targetPath: string): string {
+  let current = fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()
+    ? targetPath
+    : path.dirname(targetPath);
+
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error("找不到可打开的父目录: " + targetPath);
+    }
+    current = parent;
+  }
+
+  return current;
+}
 
 export function registerRepoHandlers() {
   // ── 注册各子模块 ──
@@ -185,9 +258,32 @@ export function registerRepoHandlers() {
       if (result) throw new Error(result);
     },
   );
-  ipcMain.on("shell:showItemInFolder", (_event, filePath: string) => {
-    shell.showItemInFolder(filePath);
-  });
+  ipcMain.handle(
+    "shell:openDirectory",
+    async (_event, dirPath: string): Promise<void> => {
+      await openDirectory(dirPath);
+    },
+  );
+  ipcMain.handle(
+    "shell:showItemInFolder",
+    async (_event, filePath: string): Promise<void> => {
+      const normalizedPath = path.resolve(filePath);
+
+      // Windows Explorer replacements generally take over the default action
+      // for Directory/Drive, not SHOpenFolderAndSelectItems. Open the parent
+      // directory through that default action so the replacement is honored.
+      if (process.platform === "win32") {
+        await openDirectory(findExistingDirectory(normalizedPath));
+        return;
+      }
+
+      if (fs.existsSync(normalizedPath)) {
+        shell.showItemInFolder(normalizedPath);
+      } else {
+        await openDirectory(findExistingDirectory(normalizedPath));
+      }
+    },
+  );
 
   // ── 文件操作 ──
   ipcMain.handle(

@@ -32,7 +32,7 @@ export interface ElectronAPI {
   log: { list(repoPath: string, options?: LogQueryOptions): Promise<SerializedCommit[]>; raw(repoPath: string, options?: LogQueryOptions): Promise<string>; detail(repoPath: string, hash: string): Promise<SerializedCommitDetail>; fileDiff(repoPath: string, hash: string, filePath: string): Promise<SerializedDiff>; graphJson(repoPath: string, maxCount?: number): Promise<any[]>; recentMessages(repoPath: string): Promise<string[]>; position(repoPath: string, hash: string): Promise<number>; };
   tag: { list(repoPath: string): Promise<SerializedTag[]>; create(repoPath: string, name: string, message?: string): Promise<void>; delete(repoPath: string, name: string): Promise<void>; };
   stash: { list(repoPath: string): Promise<SerializedStash[]>; save(repoPath: string, message?: string): Promise<void>; pop(repoPath: string, index?: number): Promise<void>; apply(repoPath: string, index: number): Promise<void>; drop(repoPath: string, index: number): Promise<void>; };
-  shell: { openPath(filePath: string): Promise<void>; showItemInFolder(filePath: string): void; openTerminal(dirPath: string): Promise<void>; };
+  shell: { openPath(filePath: string): Promise<void>; openDirectory(dirPath: string): Promise<void>; showItemInFolder(filePath: string): Promise<void>; openTerminal(dirPath: string): Promise<void>; };
   file: { remove(repoPath: string, filePath: string): Promise<void>; };
   git: { setCredential(repoPath: string, remote: string, url: string, username: string, password: string): Promise<void>; };
 }

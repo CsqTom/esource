@@ -204,9 +204,10 @@ const electronAPI = {
   shell: {
     openPath: (filePath: string): Promise<void> =>
       ipcRenderer.invoke("shell:openPath", filePath),
-    showItemInFolder: (filePath: string): void => {
-      ipcRenderer.send("shell:showItemInFolder", filePath);
-    },
+    openDirectory: (dirPath: string): Promise<void> =>
+      ipcRenderer.invoke("shell:openDirectory", dirPath),
+    showItemInFolder: (filePath: string): Promise<void> =>
+      ipcRenderer.invoke("shell:showItemInFolder", filePath),
     openTerminal: (dirPath: string): Promise<void> =>
       ipcRenderer.invoke("shell:openTerminal", dirPath),
   },

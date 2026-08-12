@@ -142,7 +142,7 @@ export function Header({
           className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors disabled:opacity-50" title="获取（仅发现远程变更，不合并）">
           <Search className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} /><span className="hidden md:inline">获取</span>
         </button>
-        <button onClick={() => window.electronAPI.shell.openPath(activeRepo.path).catch(console.error)}
+        <button onClick={() => window.electronAPI.shell.openDirectory(activeRepo.path).catch(console.error)}
           className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded transition-colors" title="在资源管理器打开">
           <FolderOpen className="w-3.5 h-3.5 text-yellow-400" />
         </button>

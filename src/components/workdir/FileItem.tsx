@@ -92,11 +92,15 @@ export function FileItem({
     }
   };
 
-  const handleShowInFolder = () => {
+  const handleShowInFolder = async () => {
     closeMenu();
     const fp = fileRef.current.path;
     const rp = repoPathRef.current;
-    window.electronAPI.shell.showItemInFolder(rp + '/' + fp);
+    try {
+      await window.electronAPI.shell.showItemInFolder(rp + '/' + fp);
+    } catch (err: any) {
+      console.error('打开文件所在目录失败:', err?.message || err);
+    }
   };
 
   const handleRemoveFile = async () => {
