@@ -3,6 +3,7 @@ import { SerializedRepository } from '../../types';
 import {
   GitBranch, Download, Upload, RefreshCw, Search, Plus, FolderOpen, Trash2, Menu,
   History, Tag, Archive, Globe, PanelLeftClose, PanelLeftOpen, Terminal,
+  GripVertical,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -16,6 +17,7 @@ interface HeaderProps {
   onCloneRepo: () => void;
   onInitRepo: () => void;
   onRemoveRepo: (id: string) => void;
+  onReorderRepos: (ids: string[]) => void | Promise<void>;
   onPull: () => void;
   onPush: () => void;
   onFetch: () => void;
@@ -43,11 +45,23 @@ function ToolbarButton({ icon, label, active, onClick }: ToolbarButtonProps) {
 }
 
 export function Header({
-  repos, activeRepo, onSelectRepo, onAddRepo, onCloneRepo, onInitRepo, onRemoveRepo,
+  repos, activeRepo, onSelectRepo, onAddRepo, onCloneRepo, onInitRepo, onRemoveRepo, onReorderRepos,
   onPull, onPush, onFetch, onToggleBranch, isPulling, isPushing, isFetching,
   activeView, onViewChange, sidebarCollapsed, onToggleSidebar,
 }: HeaderProps) {
   const [showRepoMenu, setShowRepoMenu] = useState(false);
+  const [draggedRepoId, setDraggedRepoId] = useState<string | null>(null);
+
+  const moveRepo = (targetRepoId: string) => {
+    if (!draggedRepoId || draggedRepoId === targetRepoId) return;
+    const nextIds = repos.map((repo) => repo.id);
+    const from = nextIds.indexOf(draggedRepoId);
+    const to = nextIds.indexOf(targetRepoId);
+    if (from < 0 || to < 0) return;
+    nextIds.splice(from, 1);
+    nextIds.splice(to, 0, draggedRepoId);
+    void onReorderRepos(nextIds);
+  };
 
   return (
     <header className="h-12 bg-gray-800 border-b border-gray-700 flex items-center px-4 gap-2 flex-shrink-0">
@@ -76,8 +90,9 @@ export function Header({
             <div className="absolute top-full left-0 mt-1 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 fade-in">
               <div className="p-1">
                 {repos.map((repo) => (
-                  <div key={repo.id} onClick={() => { onSelectRepo(repo); setShowRepoMenu(false); }}
-                    className={`group flex items-center gap-2 px-3 py-2 rounded cursor-pointer text-sm ${repo.id === activeRepo.id ? 'bg-blue-900/40 text-blue-300' : 'text-gray-300 hover:bg-gray-700'}`}>
+                  <div key={repo.id} draggable onDragStart={() => setDraggedRepoId(repo.id)} onDragEnd={() => setDraggedRepoId(null)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); moveRepo(repo.id); setDraggedRepoId(null); }} onClick={() => { onSelectRepo(repo); setShowRepoMenu(false); }}
+                    className={`group flex items-center gap-2 px-3 py-2 rounded cursor-pointer text-sm ${repo.id === activeRepo.id ? 'bg-blue-900/40 text-blue-300' : 'text-gray-300 hover:bg-gray-700'} ${draggedRepoId === repo.id ? 'opacity-50' : ''}`}>
+                    <GripVertical className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 cursor-grab" title="拖动排序" />
                     <FolderOpen className="w-4 h-4 flex-shrink-0" />
                     <div className="flex-1 min-w-0"><div className="truncate" title={`${repo.name}\n${repo.path}`}>{repo.name}</div></div>
                     <button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openPath(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-yellow-900/50 rounded" title="在资源管理器打开"><FolderOpen className="w-3 h-3 text-yellow-400" /></button><button onClick={(e) => { e.stopPropagation(); window.electronAPI.shell.openTerminal(repo.path).catch(console.error); setShowRepoMenu(false); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-green-900/50 rounded" title="打开终端"><Terminal className="w-3 h-3 text-green-400" /></button><button onClick={(e) => { e.stopPropagation(); onRemoveRepo(repo.id); }} className="hidden group-hover:inline-flex items-center p-1 hover:bg-red-900/50 rounded" title="移除仓库"><Trash2 className="w-3 h-3 text-red-400" /></button>

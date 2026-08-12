@@ -98,6 +98,18 @@ export function registerRepoHandlers() {
     const records = loadStore();
     saveStore(records.filter((r) => r.id !== id));
   });
+  ipcMain.handle("repo:reorder", async (_event, ids: string[]): Promise<void> => {
+    const records = loadStore();
+    const recordById = new Map(records.map((record) => [record.id, record]));
+    const reordered = ids
+      .map((id) => recordById.get(id))
+      .filter((record): record is RepoRecord => !!record);
+    const requestedIds = new Set(ids);
+    saveStore([
+      ...reordered,
+      ...records.filter((record) => !requestedIds.has(record.id)),
+    ]);
+  });
   ipcMain.handle(
     "repo:clone",
     async (

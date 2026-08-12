@@ -6,6 +6,8 @@ const electronAPI = {
     add: (): Promise<SerializedRepository> => ipcRenderer.invoke("repo:add"),
     remove: (id: string): Promise<void> =>
       ipcRenderer.invoke("repo:remove", id),
+    reorder: (ids: string[]): Promise<void> =>
+      ipcRenderer.invoke("repo:reorder", ids),
     clone: (url: string, destPath: string): Promise<SerializedRepository> =>
       ipcRenderer.invoke("repo:clone", url, destPath),
     init: (): Promise<SerializedRepository> => ipcRenderer.invoke("repo:init"),

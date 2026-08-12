@@ -1,14 +1,29 @@
 import { SerializedRepository } from '../../types';
-import { GitBranch, FolderOpen, Trash2 } from 'lucide-react';
+import { GitBranch, FolderOpen, Trash2, GripVertical } from 'lucide-react';
+import { useState } from 'react';
 
 interface RepoListProps {
   repos: SerializedRepository[];
   activeRepoId: string;
   onSelectRepo: (repo: SerializedRepository) => void;
   onRemoveRepo: (id: string) => void;
+  onReorderRepos: (ids: string[]) => void | Promise<void>;
 }
 
-export function RepoList({ repos, activeRepoId, onSelectRepo, onRemoveRepo }: RepoListProps) {
+export function RepoList({ repos, activeRepoId, onSelectRepo, onRemoveRepo, onReorderRepos }: RepoListProps) {
+  const [draggedRepoId, setDraggedRepoId] = useState<string | null>(null);
+
+  const moveRepo = (targetRepoId: string) => {
+    if (!draggedRepoId || draggedRepoId === targetRepoId) return;
+    const nextIds = repos.map((repo) => repo.id);
+    const from = nextIds.indexOf(draggedRepoId);
+    const to = nextIds.indexOf(targetRepoId);
+    if (from < 0 || to < 0) return;
+    nextIds.splice(from, 1);
+    nextIds.splice(to, 0, draggedRepoId);
+    void onReorderRepos(nextIds);
+  };
+
   return (
     <div className="py-1">
       <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -17,6 +32,11 @@ export function RepoList({ repos, activeRepoId, onSelectRepo, onRemoveRepo }: Re
       {repos.map((repo) => (
         <div
           key={repo.id}
+          draggable
+          onDragStart={() => setDraggedRepoId(repo.id)}
+          onDragEnd={() => setDraggedRepoId(null)}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); moveRepo(repo.id); setDraggedRepoId(null); }}
           onClick={() => onSelectRepo(repo)}
           className={`group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${
             repo.id === activeRepoId
@@ -24,6 +44,7 @@ export function RepoList({ repos, activeRepoId, onSelectRepo, onRemoveRepo }: Re
               : 'text-gray-300 hover:bg-gray-800 border-l-2 border-transparent'
           }`}
         >
+          <GripVertical className={`w-3.5 h-3.5 flex-shrink-0 text-gray-500 cursor-grab ${draggedRepoId === repo.id ? 'opacity-50' : ''}`} title="拖动排序" />
           <FolderOpen className="w-4 h-4 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="text-sm truncate">{repo.name}</div>

@@ -355,6 +355,25 @@ export default function App() {
     try { localStorage.setItem('lastActiveRepoId', repoId); } catch {}
   }, []);
 
+  const handleReorderRepos = useCallback(async (repoIds: string[]) => {
+    const currentIds = new Set(repos.map((repo) => repo.id));
+    const orderedIds = [
+      ...repoIds.filter((id) => currentIds.has(id)),
+      ...repos.map((repo) => repo.id).filter((id) => !repoIds.includes(id)),
+    ];
+    queryClient.setQueryData(['repos'], (current: typeof repos | undefined) => {
+      if (!current) return current;
+      const byId = new Map(current.map((repo) => [repo.id, repo]));
+      return orderedIds.map((id) => byId.get(id)).filter((repo): repo is typeof current[number] => !!repo);
+    });
+    try {
+      await window.electronAPI.repo.reorder(orderedIds);
+    } catch (err) {
+      console.error('保存仓库排序失败:', err);
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+    }
+  }, [queryClient, repos]);
+
   const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); try { localStorage.removeItem('lastActiveRepoId'); } catch {} setSelectedFile(null); setSelectedFileStaged(false); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
   const handleStageAll = useCallback(() => stageMutation.mutate(['.']), [stageMutation]);
   const handleUnstageAll = useCallback(() => unstageMutation.mutate(['.']), [unstageMutation]);
@@ -449,7 +468,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
-      <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { handleSelectRepo(repo.id); }}
+      <Header repos={repos} activeRepo={activeRepo} onSelectRepo={(repo) => { handleSelectRepo(repo.id); }} onReorderRepos={handleReorderRepos}
         onAddRepo={handleAddRepo} onCloneRepo={() => setShowCloneDialog(true)} onInitRepo={handleInitRepo} onRemoveRepo={handleRemoveRepo}
         onPull={() => {
           // 显示拉取进度面板
@@ -470,7 +489,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         {!sidebarCollapsed && (
         <div className="w-60 border-r border-gray-700 overflow-y-auto flex-shrink-0">
-          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { handleSelectRepo(repo.id); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} />
+          <RepoList repos={repos} activeRepoId={activeRepo.id} onSelectRepo={(repo) => { handleSelectRepo(repo.id); setSidebarCollapsed(true); }} onRemoveRepo={handleRemoveRepo} onReorderRepos={handleReorderRepos} />
         </div>
         )}
         <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
