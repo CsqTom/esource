@@ -136,9 +136,33 @@ export default function App() {
   const stagedFiles = fileChanges.filter((f) => f.staged);
   const unstagedFiles = fileChanges.filter((f) => !f.staged);
 
-  const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
-  const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }) });
-  const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); setSelectedFile(null); } });
+  // 工作区操作完成后同时刷新文件列表和当前 diff，避免 diff 停留在旧状态
+  const refreshWorkdir = useCallback(() => {
+    if (!activeRepo?.path) return;
+    queryClient.invalidateQueries({ queryKey: ['status', activeRepo.path] });
+    if (selectedFile) {
+      queryClient.invalidateQueries({ queryKey: ['diff', activeRepo.path, selectedFile, false] });
+      queryClient.invalidateQueries({ queryKey: ['diff', activeRepo.path, selectedFile, true] });
+    }
+  }, [queryClient, activeRepo?.path, selectedFile, selectedFileStaged]);
+
+  const stageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.stage(activeRepo!.path, files), onSuccess: refreshWorkdir });
+  const unstageMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.unstage(activeRepo!.path, files), onSuccess: refreshWorkdir });
+  const discardMutation = useMutation({ mutationFn: (files: string[]) => window.electronAPI.workdir.discard(activeRepo!.path, files), onSuccess: () => { refreshWorkdir(); setSelectedFile(null); } });
+
+  // 暂存/取消暂存后，当前文件可能移动到另一分区；保留仍存在的差异视图
+  const selectedFileHasStaged = !!selectedFile && stagedFiles.some((file) => file.path === selectedFile);
+  const selectedFileHasUnstaged = !!selectedFile && unstagedFiles.some((file) => file.path === selectedFile);
+  useEffect(() => {
+    if (!selectedFile || !status) return;
+    if (selectedFileStaged) {
+      if (!selectedFileHasStaged && selectedFileHasUnstaged) setSelectedFileStaged(false);
+      else if (!selectedFileHasStaged && !selectedFileHasUnstaged) setSelectedFile(null);
+    } else {
+      if (!selectedFileHasUnstaged && selectedFileHasStaged) setSelectedFileStaged(true);
+      else if (!selectedFileHasUnstaged && !selectedFileHasStaged) setSelectedFile(null);
+    }
+  }, [status, selectedFile, selectedFileStaged, selectedFileHasStaged, selectedFileHasUnstaged]);
   // 提交：成功后清空当前仓库草稿，刷新最近提交记录
   const commitMutation = useMutation({
     mutationFn: (message: string) => window.electronAPI.workdir.commit(activeRepo!.path, message),
@@ -327,10 +351,11 @@ export default function App() {
   const handleSelectRepo = useCallback((repoId: string) => {
     setActiveRepoId(repoId);
     setSelectedFile(null);
+    setSelectedFileStaged(false);
     try { localStorage.setItem('lastActiveRepoId', repoId); } catch {}
   }, []);
 
-  const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); try { localStorage.removeItem('lastActiveRepoId'); } catch {} setSelectedFile(null); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
+  const handleRemoveRepo = useCallback(async (id: string) => { await window.electronAPI.repo.remove(id); if (activeRepoId === id) { setActiveRepoId(null); try { localStorage.removeItem('lastActiveRepoId'); } catch {} setSelectedFile(null); setSelectedFileStaged(false); } queryClient.invalidateQueries({ queryKey: ['repos'] }); }, [queryClient, activeRepoId]);
   const handleStageAll = useCallback(() => stageMutation.mutate(['.']), [stageMutation]);
   const handleUnstageAll = useCallback(() => unstageMutation.mutate(['.']), [unstageMutation]);
   // 获取/设置当前仓库的提交草稿
@@ -581,9 +606,9 @@ export default function App() {
       default:
         if (selectedFile && diff) {
           if (selectedFileStaged) {
-            return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged] }); }} />;
+            return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={refreshWorkdir} />;
           } else {
-            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} isFileTooLarge={isFileTooLarge} onActionComplete={() => { queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] }); queryClient.invalidateQueries({ queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged] }); }} />;
+            return <DiffUnstageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} isUntracked={isSelectedFileUntracked} untrackedContent={untrackedContent} untrackedContentBase64={isImage ? untrackedContent : undefined} isFileTooLarge={isFileTooLarge} onActionComplete={refreshWorkdir} />;
           }
         }
         return (
