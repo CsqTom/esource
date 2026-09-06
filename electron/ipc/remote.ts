@@ -135,6 +135,8 @@ export function registerRemoteHandlers() {
         "-m",
         `Auto-stash before pull from ${r}/${b}`,
       ]);
+      // 仅当确实生成了 stash 条目时才需要恢复（无改动时 push 是空操作）
+      const stashed = (await git.stashList()).total > 0;
       try {
         await git.pull(r, b);
         if (currentBranch && !statusBeforePull.tracking) {
@@ -145,16 +147,28 @@ export function registerRemoteHandlers() {
             console.error("建立跟踪关系失败:", err);
           }
         }
+      } catch (pullErr) {
+        // 拉取失败（多为合并冲突）：先尽量恢复暂存的本地改动，再抛出
+        if (stashed) {
+          try {
+            await git.raw(["stash", "pop"]);
+          } catch {
+            // 恢复本身也冲突：改动已回到工作区（含冲突标记），stash 条目仍保留
+          }
+        }
+        throw pullErr;
+      }
+      if (stashed) {
         try {
           await git.raw(["stash", "pop"]);
         } catch (popErr) {
-          console.error("Stash pop 失败，冲突可能需要手动解决:", popErr);
+          console.error("Stash pop 冲突:", popErr);
+          throw new Error(
+            "拉取完成，但恢复暂存改动（stash pop）时发生冲突。\n" +
+              "冲突文件已标记在工作区，你的改动也仍保留在 stash 中。\n" +
+              "请在工作区解决冲突后提交；确认无误后可清理该 stash。",
+          );
         }
-      } catch (pullErr) {
-        try {
-          await git.raw(["stash", "pop"]);
-        } catch {}
-        throw pullErr;
       }
     },
   );

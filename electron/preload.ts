@@ -110,6 +110,36 @@ const electronAPI = {
       ipcRenderer.invoke("workdir:discardLines", repoPath, file, selections),
     commit: (repoPath: string, message: string): Promise<void> =>
       ipcRenderer.invoke("workdir:commit", repoPath, message),
+    conflictState: (
+      repoPath: string,
+    ): Promise<SerializedConflictState> =>
+      ipcRenderer.invoke("workdir:conflictState", repoPath),
+    conflictDetail: (
+      repoPath: string,
+      file: string,
+    ): Promise<SerializedConflictDetail> =>
+      ipcRenderer.invoke("workdir:conflictDetail", repoPath, file),
+    resolveConflict: (
+      repoPath: string,
+      file: string,
+      resolution: "ours" | "theirs",
+    ): Promise<void> =>
+      ipcRenderer.invoke("workdir:resolveConflict", repoPath, file, resolution),
+    resolveConflictBlock: (
+      repoPath: string,
+      file: string,
+      blockIndex: number,
+      side: "ours" | "theirs" | "both",
+    ): Promise<void> =>
+      ipcRenderer.invoke(
+        "workdir:resolveConflictBlock",
+        repoPath,
+        file,
+        blockIndex,
+        side,
+      ),
+    abortConflictOperation: (repoPath: string): Promise<void> =>
+      ipcRenderer.invoke("workdir:abortConflictOperation", repoPath),
     addToGitignore: (repoPath: string, rules: string[]): Promise<void> =>
       ipcRenderer.invoke("workdir:addToGitignore", repoPath, rules),
     listAncestorDirs: (repoPath: string, filePath: string): Promise<string[]> =>

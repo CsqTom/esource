@@ -132,3 +132,29 @@ interface SelectionRange {
   startLine: number;
   endLine: number;
 }
+
+type GitConflictOperation = "merge" | "rebase" | "cherry-pick" | null;
+
+interface SerializedConflictState {
+  operation: GitConflictOperation;
+  /** 合并来源（MERGE_MSG 中解析的分支名，如 origin/master） */
+  source: string;
+}
+
+type ConflictSegment =
+  | { type: "normal"; lines: string[] }
+  | {
+      type: "conflict";
+      ours: string[];
+      theirs: string[];
+      base?: string[];
+      oursLabel: string;
+      theirsLabel: string;
+    };
+
+interface SerializedConflictDetail {
+  file: string;
+  /** 工作区文件中是否仍存在冲突标记 */
+  hasMarkers: boolean;
+  segments: ConflictSegment[];
+}

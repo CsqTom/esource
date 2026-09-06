@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Download, Archive, Trash2, GitBranch, AlertCircle } from 'lucide-react';
+import { X, Download, Archive, Trash2, GitBranch, AlertCircle, GitCommit } from 'lucide-react';
 import type { SerializedRemote, SerializedBranch } from '../../types';
 
 interface PullProgressDialogProps {
@@ -11,6 +11,7 @@ interface PullProgressDialogProps {
   onPull: (remote: string, branch: string) => void; // 拉取指定远程分支
   onStashAndPull?: (remote: string, branch: string) => void;
   onDiscardAndPull?: (remote: string, branch: string) => void;
+  onGoCommit?: () => void; // 关闭弹窗并回到工作区，让用户先提交再拉取
 }
 
 export function PullProgressDialog({
@@ -21,7 +22,8 @@ export function PullProgressDialog({
   onClose,
   onPull,
   onStashAndPull,
-  onDiscardAndPull
+  onDiscardAndPull,
+  onGoCommit
 }: PullProgressDialogProps) {
   const [remotes, setRemotes] = useState<SerializedRemote[]>([]);
   const [branches, setBranches] = useState<SerializedBranch[]>([]);
@@ -127,6 +129,15 @@ export function PullProgressDialog({
             {/* 如果是拉取冲突错误，显示解决选项 */}
             {error.includes('would be overwritten by merge') && (onStashAndPull || onDiscardAndPull) && (
               <div className="mt-3 flex items-center gap-2">
+                {onGoCommit && (
+                  <button
+                    onClick={onGoCommit}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium transition-colors"
+                  >
+                    <GitCommit className="w-3.5 h-3.5" />
+                    先提交再拉取
+                  </button>
+                )}
                 {onStashAndPull && (
                   <button
                     onClick={handleStashAndPull}

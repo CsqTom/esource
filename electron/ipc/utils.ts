@@ -297,3 +297,116 @@ export function buildPartialPatch(
   }
   return patchLines.join("\n") + "\n";
 }
+// ── 冲突解决工具 ──
+
+export type GitConflictOperation = "merge" | "rebase" | "cherry-pick" | null;
+
+/** 通过 .git 目录中的状态文件判断进行中的合并/变基/cherry-pick 操作 */
+export function detectGitOperation(repoPath: string): GitConflictOperation {
+  const dotGit = path.join(repoPath, ".git");
+  // rebase 进行中：.git/rebase-merge 或 rebase-apply 目录存在
+  if (fs.existsSync(path.join(dotGit, "rebase-merge")) || fs.existsSync(path.join(dotGit, "rebase-apply"))) {
+    return "rebase";
+  }
+  if (fs.existsSync(path.join(dotGit, "CHERRY_PICK_HEAD"))) return "cherry-pick";
+  if (fs.existsSync(path.join(dotGit, "MERGE_HEAD"))) return "merge";
+  return null;
+}
+
+/** 读取合并来源（MERGE_MSG 首行引号内的分支名，如 origin/master） */
+export function readMergeSource(repoPath: string): string {
+  try {
+    const msg = fs
+      .readFileSync(path.join(repoPath, ".git", "MERGE_MSG"), "utf-8")
+      .split("\n")[0]
+      .trim();
+    const quoted = msg.match(/'([^']+)'/);
+    return quoted ? quoted[1] : msg;
+  } catch {
+    return "";
+  }
+}
+
+export interface ConflictSegmentData {
+  type: "normal" | "conflict";
+  /** normal 段的原始行 */
+  lines?: string[];
+  /** conflict 段我方（当前分支）行 */
+  ours?: string[];
+  /** conflict 段对方（传入分支）行 */
+  theirs?: string[];
+  /** conflict 段共同祖先行（diff3 风格才有） */
+  base?: string[];
+  /** 冲突标记上的两侧标签，如 HEAD / origin/master */
+  oursLabel?: string;
+  theirsLabel?: string;
+  /** conflict 段原始行（解决其它块时原样保留用） */
+  raw?: string[];
+}
+
+/** 解析工作区文件中的 <<<<<<< ======= >>>>>>> 冲突标记（兼容 diff3 风格的 ||||||| 段） */
+export function parseConflictSegments(
+  content: string,
+): { hasMarkers: boolean; segments: ConflictSegmentData[] } {
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(eol);
+  const segments: ConflictSegmentData[] = [];
+  let normal: string[] = [];
+  let hasMarkers = false;
+
+  const isStart = (l: string) => /^<{7}($|\s)/.test(l);
+  const isBase = (l: string) => /^\|{7}($|\s)/.test(l);
+  const isMid = (l: string) => /^={7}\s*$/.test(l);
+  const isEnd = (l: string) => /^>{7}($|\s)/.test(l);
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isStart(line)) {
+      hasMarkers = true;
+      const startIdx = i;
+      const oursLabel = line.replace(/^<{7}\s*/, "").trim();
+      i++;
+      const ours: string[] = [];
+      let base: string[] | undefined;
+      const theirs: string[] = [];
+      while (i < lines.length && !isBase(lines[i]) && !isMid(lines[i])) {
+        ours.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length && isBase(lines[i])) {
+        base = [];
+        i++;
+        while (i < lines.length && !isMid(lines[i])) {
+          base.push(lines[i]);
+          i++;
+        }
+      }
+      i++; // 跳过 =======
+      while (i < lines.length && !isEnd(lines[i])) {
+        theirs.push(lines[i]);
+        i++;
+      }
+      const theirsLabel = i < lines.length ? lines[i].replace(/^>{7}\s*/, "").trim() : "";
+      if (i < lines.length) i++; // 跳过 >>>>>>>
+      if (normal.length) {
+        segments.push({ type: "normal", lines: normal });
+        normal = [];
+      }
+      segments.push({
+        type: "conflict",
+        ours,
+        theirs,
+        base,
+        oursLabel,
+        theirsLabel,
+        raw: lines.slice(startIdx, i),
+      });
+    } else {
+      normal.push(line);
+      i++;
+    }
+  }
+  if (normal.length) segments.push({ type: "normal", lines: normal });
+  return { hasMarkers, segments };
+}

@@ -8,6 +8,8 @@ import { CredentialDialog } from './components/remote/CredentialDialog';
 import { PushDialog } from './components/remote/PushDialog';
 import { BranchPanel } from './components/branch/BranchPanel';
 import { FileList } from './components/workdir/FileList';
+import { ConflictPanel } from './components/workdir/ConflictPanel';
+import { ConflictView } from './components/workdir/ConflictView';
 import { DiffStageView } from './components/diff/DiffStageView';
 import { DiffUnstageView } from './components/diff/DiffUnstageView';
 import { LogViewer } from './components/log/LogViewer';
@@ -75,17 +77,19 @@ export default function App() {
   // 从 git 当前分支读取最近 10 条提交记录（用于提交框快速选择）
   const { data: recentMessages = [] } = useQuery({ queryKey: ['recentMessages', activeRepo?.path], queryFn: () => window.electronAPI.log.recentMessages(activeRepo!.path), enabled: !!activeRepo?.path, staleTime: 2_000 });
 
-  const { data: diff, isFetching: diffLoading } = useQuery({
-    queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged],
-    queryFn: async () => { if (!selectedFile) return null; return window.electronAPI.workdir.diff(activeRepo!.path, selectedFile, selectedFileStaged); },
-    enabled: !!activeRepo?.path && !!selectedFile && activeView === 'diff',
-    staleTime: 30_000, placeholderData: (prev) => prev,
-  });
-
+  // 当前选中文件是否为未跟踪 / 冲突文件（冲突文件进入冲突解决视图而非普通 diff）
   const isSelectedFileUntracked = !!(selectedFile && (
     status?.not_added?.includes(selectedFile) ||
     status?.files?.some(f => f.path === selectedFile && f.working_dir?.trim() === '?')
   ));
+  const isSelectedFileConflicted = !!(selectedFile && status?.conflicted?.includes(selectedFile));
+
+  const { data: diff, isFetching: diffLoading } = useQuery({
+    queryKey: ['diff', activeRepo?.path, selectedFile, selectedFileStaged],
+    queryFn: async () => { if (!selectedFile) return null; return window.electronAPI.workdir.diff(activeRepo!.path, selectedFile, selectedFileStaged); },
+    enabled: !!activeRepo?.path && !!selectedFile && activeView === 'diff' && !isSelectedFileConflicted,
+    staleTime: 30_000, placeholderData: (prev) => prev,
+  });
 
   const ext = selectedFile?.split('.').pop()?.toLowerCase() || '';
   const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
@@ -112,11 +116,17 @@ export default function App() {
   const fileChanges: FileChangeItem[] = (() => {
     if (!status || !status.files) return [];
     const items: FileChangeItem[] = [];
+    // 未合并状态的 XY 组合（ porcelain v1 ）
+    const conflictCodes = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
     for (const f of status.files) {
       const idx = (f.index || ' ').trim(); const wd = (f.working_dir || ' ').trim();
       const isStaged = idx === 'M' || idx === 'A' || idx === 'D' || idx === 'R' || idx === 'C';
       const isUnstaged = wd === 'M' || wd === 'D' || wd === '?';
       if (wd === '?') { items.push({ path: f.path, status: 'untracked', staged: false }); }
+      else if (conflictCodes.has(idx + wd)) {
+        // 冲突文件单独列出（未暂存区），点击进入冲突解决视图
+        items.push({ path: f.path, status: 'conflicted', staged: false });
+      }
       else {
         if (isStaged) {
           if (idx === 'A') items.push({ path: f.path, status: 'added', staged: true });
@@ -493,6 +503,16 @@ export default function App() {
         </div>
         )}
         <div style={{ width: filePanelDivider.width }} className="border-r border-gray-700 flex flex-col flex-shrink-0">
+          {/* 冲突解决面板：存在未解决冲突时置顶显示 */}
+          {status?.conflicted && status.conflicted.length > 0 && (
+            <ConflictPanel
+              repoPath={activeRepo.path}
+              files={status.conflicted}
+              selectedFile={selectedFile}
+              onOpenFile={(file) => { setSelectedFile(file); setSelectedFileStaged(false); }}
+              onRefresh={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })}
+            />
+          )}
           {/* 上：已暂存区（固定高度，可由分隔条调整） */}
           <div style={{ height: stagedPanelDivider.size }} className="flex flex-col min-h-0 flex-shrink-0">
             <div className="flex items-center px-3 py-1.5 bg-gray-800/80 border-b border-gray-700 flex-shrink-0">
@@ -587,6 +607,7 @@ export default function App() {
           onPull={handlePull}
           onStashAndPull={handleStashAndPull}
           onDiscardAndPull={handleDiscardAndPull}
+          onGoCommit={() => { setShowPullProgress(false); setPullError(null); setActiveView('diff'); }}
         />
       )}
       {/* 推送弹窗：选择远程仓库和分支，成功自动关闭，失败显示错误 */}
@@ -623,6 +644,10 @@ export default function App() {
       case 'branch': return <BranchPanel branches={branches} currentBranch={activeRepo.currentBranch} onClose={() => setActiveView('diff')} repoPath={activeRepo.path} />;
       case 'diff':
       default:
+        // 冲突文件：进入逐块解决视图（替代普通 diff）
+        if (selectedFile && isSelectedFileConflicted) {
+          return <ConflictView repoPath={activeRepo.path} filePath={selectedFile} onRefresh={refreshWorkdir} />;
+        }
         if (selectedFile && diff) {
           if (selectedFileStaged) {
             return <DiffStageView diff={diff} loading={diffLoading} repoPath={activeRepo.path} onActionComplete={refreshWorkdir} />;
