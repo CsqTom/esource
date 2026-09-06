@@ -1,8 +1,9 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SerializedCommit, SerializedDiff } from '../../types';
 import { ResizableDivider } from '../common/ResizableDivider';
-import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { CreateTagDialog } from '../tag/CreateTagDialog';
+import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2, ChevronDown, ChevronRight, Upload, AlertCircle, Check, X } from 'lucide-react';
 
 interface LogViewerProps { repoPath: string; onClose: () => void; focusHash?: string; }
 
@@ -203,14 +204,14 @@ function parseRef(ref: string, remoteRefs?: Set<string>): ParsedRef | null {
   return { kind: 'branch', name: trimmed };
 }
 
-function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick }: { commit: SerializedCommit; node: GraphNode; isSelected: boolean; maxCols: number; remoteRefs?: Set<string>; onClick: () => void }) {
+function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick, onContextMenu }: { commit: SerializedCommit; node: GraphNode; isSelected: boolean; maxCols: number; remoteRefs?: Set<string>; onClick: () => void; onContextMenu?: (e: React.MouseEvent) => void }) {
   const svgW = maxCols * COL_W + PAD * 2;
   const cx = colX(node.col);
   const dotColor = COLORS[node.col % COLORS.length];
   // 解析 refs：HEAD（当前分支）、普通分支、远程跟踪分支、标签
   const parsedRefs = commit.refs.map(r => parseRef(r, remoteRefs)).filter((r): r is ParsedRef => r !== null);
   return (
-    <div onClick={onClick} className={`flex items-center cursor-pointer transition-colors hover:bg-gray-800 ${isSelected ? 'bg-blue-900/30' : ''}`} style={{ height: ROW_H }}>
+    <div onClick={onClick} onContextMenu={onContextMenu} className={`flex items-center cursor-pointer transition-colors hover:bg-gray-800 ${isSelected ? 'bg-blue-900/30' : ''}`} style={{ height: ROW_H }}>
       <svg width={svgW} height={ROW_H} viewBox={`0 0 ${svgW} ${ROW_H}`} className="shrink-0">
         {/* 1. 竖线：活跃分支列（贯穿整行 y=0 → ROW_H） */}
         {node.branches.map((bid, j) => {
@@ -255,12 +256,22 @@ function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick }: {
 }
 
 export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
+  const queryClient = useQueryClient();
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [pendingFocusHash, setPendingFocusHash] = useState<string | undefined>(focusHash);
   const [searchQuery, setSearchQuery] = useState('');
   const [maxCount, setMaxCount] = useState(100);
   const [activeTab, setActiveTab] = useState<'current' | 'all'>('current');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 提交行右键菜单：记录弹出位置与目标提交
+  const [menu, setMenu] = useState<{ x: number; y: number; commit: SerializedCommit } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // 右键菜单"新建标签"的目标提交
+  const [createTagFor, setCreateTagFor] = useState<SerializedCommit | null>(null);
+  // 推送标签失败提示
+  const [pushTagError, setPushTagError] = useState<string | null>(null);
+  // 操作成功提示（自动消失）
+  const [notice, setNotice] = useState<string | null>(null);
 
   // 详情面板宽度（可拖动调整）
   const detailPanelDivider = ResizableDivider({
@@ -316,6 +327,75 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
 
   const handleCopy = (hash: string) => navigator.clipboard?.writeText(hash);
 
+  // 右键菜单"推送标签"项的状态：pending 推送中 / success 已推送 / error 失败可重试
+  const [pushState, setPushState] = useState<{ tag: string; status: 'pending' | 'success' | 'error' } | null>(null);
+  // 已推送状态展示片刻后自动收起菜单的定时器
+  const pushCloseTimerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (pushCloseTimerRef.current) clearTimeout(pushCloseTimerRef.current); }, []);
+
+  // 成功提示 4 秒后自动消失
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // 推送标签到远程（远程名缺省时后端按跟踪分支/origin 解析）
+  const pushTagMutation = useMutation({
+    mutationFn: (tagName: string) => window.electronAPI.tag.push(repoPath, tagName),
+    onSuccess: (_data, tagName) => {
+      setPushState({ tag: tagName, status: 'success' });
+      setPushTagError(null);
+      // 同步刷新标签面板的远程推送状态
+      queryClient.invalidateQueries({ queryKey: ['tagRemoteTags', repoPath] });
+      pushCloseTimerRef.current = window.setTimeout(() => {
+        setMenu(null);
+        setPushState(null);
+      }, 1500);
+    },
+    onError: (err, tagName) => {
+      setPushState({ tag: tagName, status: 'error' });
+      const msg = String((err as any)?.message || err || '').replace(
+        /^Error: Error invoking remote method 'tag:push': Error: /,
+        '',
+      );
+      setPushTagError(msg || '推送失败');
+    },
+  });
+
+  // 提交行右键菜单；靠近视口边缘时向内收，避免菜单被裁切
+  const handleOpenContextMenu = (e: React.MouseEvent, commit: SerializedCommit) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pushCloseTimerRef.current) { clearTimeout(pushCloseTimerRef.current); pushCloseTimerRef.current = null; }
+    setPushState(null);
+    setMenu({
+      x: Math.max(0, Math.min(e.clientX, window.innerWidth - 240)),
+      y: Math.max(0, Math.min(e.clientY, window.innerHeight - 180)),
+      commit,
+    });
+  };
+
+  // 右键菜单提交上已有的标签（refs 形如 "tag: v1.0.0"）
+  const menuTags = menu
+    ? menu.commit.refs.filter((r) => r.startsWith('tag: ')).map((r) => r.slice(5).trim())
+    : [];
+
+  // 点击菜单外部或滚动时关闭右键菜单
+  useEffect(() => {
+    if (!menu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(null);
+    };
+    const handleScroll = () => setMenu(null);
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('scroll', handleScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [menu]);
+
   // 从标签页跳转定位：选中并滚动到对应提交行。
   // 为能一眼看到"标签指向的提交"与"最新提交"之间差多少，尽量把目标行定位在视口上部。
   useEffect(() => {
@@ -337,6 +417,28 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
         <span className="text-sm font-medium">提交历史</span>
         <span className="text-xs text-gray-500">({commits.length} 条)</span>
       </div>
+
+      {/* 推送标签失败提示 */}
+      {pushTagError && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-red-900/30 border-b border-red-800/60 text-xs text-red-300 flex-shrink-0">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 break-all">推送标签失败：{pushTagError}</span>
+          <button onClick={() => setPushTagError(null)} className="p-0.5 hover:bg-red-900/50 rounded shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 操作成功提示 */}
+      {notice && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-green-900/30 border-b border-green-800/60 text-xs text-green-300 flex-shrink-0">
+          <Check className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 break-all">{notice}</span>
+          <button onClick={() => setNotice(null)} className="p-0.5 hover:bg-green-900/50 rounded shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* 多分支时显示 tab：当前分支 / 所有分支；单分支时不显示 */}
       {showTabs && (
@@ -374,7 +476,7 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
             <div className="flex items-center justify-center h-32 text-gray-500 text-sm">没有提交记录</div>
           ) : (
             commits.map((commit, idx) => (
-              <CommitRow key={commit.hash} commit={commit} node={graph[idx] || { col: 0, branches: [], childEdges: [], parentEdges: [], mergePassThroughs: [] }} isSelected={selectedHash === commit.hash} maxCols={maxCols} remoteRefs={remoteRefSet} onClick={() => setSelectedHash(commit.hash)} />
+              <CommitRow key={commit.hash} commit={commit} node={graph[idx] || { col: 0, branches: [], childEdges: [], parentEdges: [], mergePassThroughs: [] }} isSelected={selectedHash === commit.hash} maxCols={maxCols} remoteRefs={remoteRefSet} onClick={() => setSelectedHash(commit.hash)} onContextMenu={(e) => handleOpenContextMenu(e, commit)} />
             ))
           )}
         </div>
@@ -473,6 +575,72 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
           </div>
         )}
       </div>
+
+      {/* 提交行右键菜单 */}
+      {menu && (
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 9999 }}
+          className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[200px] max-w-[300px]"
+        >
+          {/* 目标提交提示 */}
+          <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-700 truncate" title={menu.commit.message.split('\n')[0]}>
+            {menu.commit.hash.slice(0, 7)} · {menu.commit.message.split('\n')[0]}
+          </div>
+          <button
+            onClick={() => { setCreateTagFor(menu.commit); setMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors text-left"
+          >
+            <Tag className="w-4 h-4 text-yellow-400" />
+            新建标签...
+          </button>
+          {menuTags.map((tagName) => {
+            const st = pushState && pushState.tag === tagName ? pushState.status : null;
+            return (
+              <button
+                key={tagName}
+                onClick={() => { setPushTagError(null); setPushState({ tag: tagName, status: 'pending' }); pushTagMutation.mutate(tagName); }}
+                disabled={st === 'pending' || st === 'success'}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors text-left disabled:cursor-default"
+                title={st === 'error' ? '点击重试推送' : `推送标签 "${tagName}" 到远程`}
+              >
+                {st === 'pending' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
+                    <span>推送中...</span>
+                  </>
+                ) : st === 'success' ? (
+                  <>
+                    <Check className="w-4 h-4 text-green-400 shrink-0" />
+                    <span className="text-green-300">已推送</span>
+                  </>
+                ) : st === 'error' ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span className="text-red-300">推送失败，点击重试</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span className="truncate">推送标签 "{tagName}"</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 新建标签弹层 */}
+      {createTagFor && (
+        <CreateTagDialog
+          repoPath={repoPath}
+          commitHash={createTagFor.hash}
+          commitMessage={createTagFor.message.split('\n')[0]}
+          onNotice={setNotice}
+          onClose={() => setCreateTagFor(null)}
+        />
+      )}
     </div>
   );
 }

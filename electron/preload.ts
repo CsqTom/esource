@@ -180,8 +180,19 @@ const electronAPI = {
   tag: {
     list: (repoPath: string): Promise<SerializedTag[]> =>
       ipcRenderer.invoke("tag:list", repoPath),
-    create: (repoPath: string, name: string, message?: string): Promise<void> =>
-      ipcRenderer.invoke("tag:create", repoPath, name, message),
+    create: (
+      repoPath: string,
+      name: string,
+      message?: string,
+      commitHash?: string,
+    ): Promise<void> =>
+      ipcRenderer.invoke("tag:create", repoPath, name, message, commitHash),
+    push: (repoPath: string, name: string, remote?: string): Promise<void> =>
+      ipcRenderer.invoke("tag:push", repoPath, name, remote),
+    remoteTags: (
+      repoPath: string,
+    ): Promise<{ remote: string; tags: string[] }> =>
+      ipcRenderer.invoke("tag:remoteTags", repoPath),
     delete: (repoPath: string, name: string): Promise<void> =>
       ipcRenderer.invoke("tag:delete", repoPath, name),
   },

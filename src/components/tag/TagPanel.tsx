@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SerializedTag } from '../../types';
 import {
@@ -13,6 +13,9 @@ import {
   AlertCircle,
   GitBranch,
   ExternalLink,
+  Upload,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface TagPanelProps {
@@ -35,12 +38,28 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
   const [newTagName, setNewTagName] = useState('');
   const [newTagMessage, setNewTagMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // 推送标签的结果提示（成功自动消失，失败需手动关闭）
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: tags = [], isLoading } = useQuery({
     queryKey: ['tags', repoPath],
     queryFn: () => window.electronAPI.tag.list(repoPath),
     staleTime: 5_000,
   });
+
+  // 远程已存在的标签，用于判断本地标签是否已推送；remote 为空表示未配置远程
+  const {
+    data: remoteTags,
+    isFetching: remoteTagsFetching,
+    error: remoteTagsError,
+    refetch: refetchRemoteTags,
+  } = useQuery({
+    queryKey: ['tagRemoteTags', repoPath],
+    queryFn: () => window.electronAPI.tag.remoteTags(repoPath),
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const remoteTagSet = useMemo(() => new Set(remoteTags?.tags ?? []), [remoteTags]);
 
   // 按时间倒序排列，最新的标签在最前面
   const sortedTags = useMemo(
@@ -70,6 +89,30 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
     },
   });
 
+  // 推送标签到远程（远程名缺省时后端按跟踪分支/origin 解析）
+  const pushTagMutation = useMutation({
+    mutationFn: (name: string) => window.electronAPI.tag.push(repoPath, name),
+    onSuccess: (_data, name) => {
+      setNotice({ type: 'success', text: `标签 "${name}" 已推送到远程` });
+      // 推送状态徽章立即刷新
+      queryClient.invalidateQueries({ queryKey: ['tagRemoteTags', repoPath] });
+    },
+    onError: (err: any) => setNotice({
+      type: 'error',
+      text: String(err?.message || err || '').replace(
+        /^Error: Error invoking remote method 'tag:push': Error: /,
+        '',
+      ) || '推送失败',
+    }),
+  });
+
+  // 成功提示 3 秒后自动消失
+  useEffect(() => {
+    if (notice?.type !== 'success') return;
+    const timer = window.setTimeout(() => setNotice(null), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   const handleCreate = () => {
     if (!newTagName.trim()) {
       setError('标签名称不能为空');
@@ -89,11 +132,57 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
           <Tag className="w-4 h-4 text-yellow-400" />
           <span className="text-sm font-medium">标签管理</span>
           <span className="text-xs text-gray-500">({tags.length} 个标签)</span>
+          {remoteTags && remoteTags.remote && (
+            <span className="text-xs text-gray-500">远程: {remoteTags.remote}</span>
+          )}
         </div>
-        <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded transition-colors">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => refetchRemoteTags()}
+            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            title="刷新远程推送状态"
+          >
+            <RefreshCw className={`w-4 h-4 text-gray-400 ${remoteTagsFetching ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+
+      {/* 远程状态提示 */}
+      {remoteTagsError && (
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-700 bg-gray-800/50 text-xs text-gray-400 flex-shrink-0">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-gray-500" />
+          <span className="flex-1">无法获取远程标签状态（可能未联网），可稍后刷新重试</span>
+          <button onClick={() => refetchRemoteTags()} className="px-2 py-0.5 hover:bg-gray-700 rounded text-gray-300 transition-colors">重试</button>
+        </div>
+      )}
+      {remoteTags && !remoteTags.remote && (
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-700 bg-gray-800/50 text-xs text-gray-400 flex-shrink-0">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-gray-500" />
+          <span className="flex-1">未配置远程仓库，标签仅保存在本地</span>
+        </div>
+      )}
+
+      {/* 推送结果提示 */}
+      {notice && (
+        <div
+          className={`flex items-center gap-2 px-4 py-1.5 border-b text-xs flex-shrink-0 ${
+            notice.type === 'success'
+              ? 'bg-green-900/30 border-green-800/60 text-green-300'
+              : 'bg-red-900/30 border-red-800/60 text-red-300'
+          }`}
+        >
+          {notice.type === 'success'
+            ? <Check className="w-3.5 h-3.5 shrink-0" />
+            : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+          <span className="flex-1 break-all">{notice.text}</span>
+          <button onClick={() => setNotice(null)} className="p-0.5 hover:bg-gray-700 rounded shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="p-3 border-b border-gray-700">
         {showCreate ? (
@@ -166,6 +255,25 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
                     {tag.annotated && (
                       <span className="text-xs bg-yellow-900/40 text-yellow-300 px-1.5 py-0.5 rounded whitespace-nowrap">附注</span>
                     )}
+                    {remoteTags?.remote && (
+                      remoteTagSet.has(tag.name) ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded bg-green-900/40 text-green-300 whitespace-nowrap"
+                          title={`已推送到远程 ${remoteTags.remote}`}
+                        >
+                          <Check className="w-3 h-3" />
+                          已推送
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 whitespace-nowrap"
+                          title={`尚未推送到远程 ${remoteTags.remote}`}
+                        >
+                          <Upload className="w-3 h-3" />
+                          未推送
+                        </span>
+                      )
+                    )}
                     {tag.branches && tag.branches.length > 0 && (
                       <span className="flex items-center gap-1 min-w-0">
                         <GitBranch className="w-3 h-3 text-gray-500 flex-shrink-0" />
@@ -204,6 +312,20 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
                     title="在提交历史中查看该标签对应的提交"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {remoteTags?.remote && (
+                  <button
+                    onClick={() => { setNotice(null); pushTagMutation.mutate(tag.name); }}
+                    disabled={pushTagMutation.isPending && pushTagMutation.variables === tag.name}
+                    className={`p-1.5 hover:bg-blue-900/30 rounded text-blue-400 transition-all disabled:cursor-default ${
+                      remoteTagSet.has(tag.name) ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'
+                    }`}
+                    title={remoteTagSet.has(tag.name) ? '重新推送到远程' : '推送标签到远程'}
+                  >
+                    {pushTagMutation.isPending && pushTagMutation.variables === tag.name
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Upload className="w-3.5 h-3.5" />}
                   </button>
                 )}
                 <button
