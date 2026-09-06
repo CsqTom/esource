@@ -311,8 +311,16 @@ export function LogViewer({ repoPath, onClose, focusHash, focusFilePath }: LogVi
     staleTime: 5_000,
   });
 
-  // 后端已按 --date-order 返回（拓扑序 + 时间序），不再重排以免打乱父子关系导致连线断裂
-  const graph = useMemo(() => buildGraph(commits), [commits]);
+  // 后端已按 --date-order 返回（拓扑序 + 时间序），不再重排以免打乱父子关系导致连线断裂。
+  // 过滤态（说明/文件搜索）下结果集的父子关系不完整，DAG 连线没有意义——退化为单列时间线
+  const isFiltered = !!searchQuery.trim();
+  const graph = useMemo(
+    () =>
+      isFiltered
+        ? commits.map((c) => ({ col: 0, branches: [c.hash], childEdges: [], parentEdges: [], mergePassThroughs: [] }))
+        : buildGraph(commits),
+    [commits, isFiltered],
+  );
   const maxCols = useMemo(() => Math.max(1, ...graph.map(r => Math.max(r.col + 1, r.branches.length))), [graph]);
 
   const { data: detail, isLoading: detailLoading } = useQuery({
