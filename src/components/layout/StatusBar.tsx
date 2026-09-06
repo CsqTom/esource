@@ -31,8 +31,16 @@ export function StatusBar({ repoPath, currentBranch, ahead, behind, isClean }: S
         <span className="ml-3 text-green-400">✔ 工作区干净</span>
       )}
 
-      <span className="ml-auto truncate max-w-[400px]" title={repoPath}>
-        {repoPath}
+      <span className="ml-auto flex items-center gap-3 min-w-0">
+        <span
+          className="font-mono whitespace-nowrap"
+          title={`版本 ${__APP_VERSION__} · 构建于 ${__APP_BUILD_TIME__}`}
+        >
+          {__APP_VERSION__}
+        </span>
+        <span className="truncate max-w-[400px]" title={repoPath}>
+          {repoPath}
+        </span>
       </span>
     </footer>
   );

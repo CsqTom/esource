@@ -1,6 +1,6 @@
 {
   "name": "esource",
-  "version": "1.0.0",
+  "version": "2026.9.7-1.gd7d3bd3",
   "description": "Git GUI desktop client - SourceTree alternative",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -26,13 +26,16 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "version.json"
     ],
     "directories": {
       "output": "dist-release"
     },
     "linux": {
-      "target": ["deb"],
+      "target": [
+        "deb"
+      ],
       "icon": "icon.png",
       "category": "Development",
       "maintainer": "eSource Team",

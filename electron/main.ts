@@ -1,8 +1,21 @@
 import { app, BrowserWindow } from "electron";
+import fs from "fs";
 import path from "path";
 import { registerRepoHandlers } from "./ipc/repo";
 
 const isDev = process.env.NODE_ENV === "development";
+
+// 构建时生成的版本信息（version.json 随安装包分发，局域网环境无需联网获取）
+function readDisplayVersion(): string {
+  try {
+    const info = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../version.json"), "utf-8"),
+    );
+    return info.display || app.getVersion();
+  } catch {
+    return app.getVersion();
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 let wasMinimized = false;
@@ -17,7 +30,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    title: "eSource - Git GUI",
+    title: `eSource ${readDisplayVersion()}`,
     icon: path.join(__dirname, "../build/icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
