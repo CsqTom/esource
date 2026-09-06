@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
-import { getGit, serializeStatus, parseHunks, buildPatch, reverseHunk, parseDiff, buildPartialPatch, applyPatchFromFile, detectGitOperation, readMergeSource, parseConflictSegments } from "./utils";
+import { getGit, serializeStatus, parseHunks, buildPatch, reverseHunk, parseDiff, buildPartialPatch, applyPatchFromFile, reversePatch, detectGitOperation, readMergeSource, parseConflictSegments } from "./utils";
 import { getGitignorePath, ensureGitignore } from "./gitignore";
 
 export function registerWorkdirHandlers() {
@@ -137,9 +137,12 @@ export function registerWorkdirHandlers() {
       selections: SelectionRange[],
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diffStr = await git.diff(["--cached", "-R", "--", file]);
+      // 从前端展示的正向 diff 构建局部补丁后整体反转应用。
+      // 不能用 git diff -R 重新生成：反向 diff 会把删除块重排到新增块之前，
+      // 与前端基于正向 diff 的行选择错位，导致补丁内容错误或应用失败。
+      const diffStr = await git.diff(["--cached", "--", file]);
       const patch = buildPartialPatch(file, diffStr, selections);
-      if (patch) await applyPatchFromFile(git, patch, ["--cached"]);
+      if (patch) await applyPatchFromFile(git, reversePatch(patch), ["--cached"]);
     },
   );
   ipcMain.handle(
@@ -151,9 +154,10 @@ export function registerWorkdirHandlers() {
       selections: SelectionRange[],
     ): Promise<void> => {
       const git = getGit(repoPath);
-      const diffStr = await git.diff(["-R", "--", file]);
+      // 同 unstageLines：从正向 diff 构建补丁后反转，避免 -R diff 行序重排导致的错位
+      const diffStr = await git.diff(["--", file]);
       const patch = buildPartialPatch(file, diffStr, selections);
-      if (patch) await applyPatchFromFile(git, patch, []);
+      if (patch) await applyPatchFromFile(git, reversePatch(patch), []);
     },
   );
   ipcMain.handle(

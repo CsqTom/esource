@@ -295,6 +295,8 @@ export function buildPartialPatch(
     );
     patchLines.push(...subLines);
   }
+  // 没有产生任何 hunk（如选中的全是上下文行）时返回空串，避免生成无效补丁
+  if (patchLines.length <= 2) return "";
   return patchLines.join("\n") + "\n";
 }
 // ── 冲突解决工具 ──
@@ -409,4 +411,32 @@ export function parseConflictSegments(
   }
   if (normal.length) segments.push({ type: "normal", lines: normal });
   return { hasMarkers, segments };
+}
+
+/** 将 buildPartialPatch 生成的局部补丁整体反转（交换 +/- 与 hunk 头的新旧行号） */
+export function reversePatch(patchText: string): string {
+  const lines = patchText.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  // 文件头（---/+++ 行）
+  while (i < lines.length && !lines[i].startsWith("@@")) {
+    if (lines[i]) out.push(lines[i]);
+    i++;
+  }
+  while (i < lines.length) {
+    if (!lines[i].startsWith("@@")) {
+      i++;
+      continue;
+    }
+    const header = lines[i];
+    const content: string[] = [];
+    i++;
+    while (i < lines.length && !lines[i].startsWith("@@") && lines[i] !== "") {
+      content.push(lines[i]);
+      i++;
+    }
+    const reversed = reverseHunk({ header, lines: content });
+    out.push(reversed.header, ...reversed.lines);
+  }
+  return out.join("\n") + "\n";
 }
