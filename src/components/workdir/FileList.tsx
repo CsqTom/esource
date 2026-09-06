@@ -11,6 +11,7 @@ interface FileListProps {
   onDiscardFile: (file: string) => void;
   repoPath: string;
   onRefreshStatus?: () => void;
+  onViewFileHistory?: (file: string) => void;
 }
 
 export function FileList({
@@ -22,6 +23,7 @@ export function FileList({
   onDiscardFile,
   repoPath,
   onRefreshStatus,
+  onViewFileHistory,
 }: FileListProps) {
   // 判断文件是否被选中
   const isSelected = useCallback((file: FileChangeItem): boolean => {
@@ -49,6 +51,7 @@ export function FileList({
           onDiscard={() => onDiscardFile(file.path)}
           repoPath={repoPath}
           onRefreshStatus={onRefreshStatus}
+          onViewHistory={onViewFileHistory ? () => onViewFileHistory(file.path) : undefined}
         />
       ))}
     </div>

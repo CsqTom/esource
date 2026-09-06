@@ -56,6 +56,14 @@ export function registerLogHandlers() {
       if (options?.all) opts.push("--all");
       else if (options?.branch) opts.push(options.branch);
       else opts.push("HEAD");
+      // 文件路径过滤：查看某个文件的变更历史（放在 rev 之后的 pathspec 位置）。
+      // 不含 / 和 * 的裸输入（如 remote.ts）自动包装为 *remote.ts*：
+      // git pathspec 的 * 可跨目录匹配，从而命中任意层级的同名/同名片段文件
+      if (options?.filePath) {
+        const p = options.filePath;
+        const bare = !p.includes("/") && !p.includes("*");
+        opts.push("--", bare ? `*${p}*` : p);
+      }
       const raw = await getGit(repoPath).raw(["log", ...opts]);
       return parseLogOutput(raw);
     },

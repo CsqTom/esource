@@ -21,7 +21,7 @@ export interface SerializedTag { name: string; commit: string; label: string; da
 export interface SerializedStash { id: string; index: number; message: string; branch: string; date: number; }
 export interface SerializedRemote { name: string; refs: { fetch: string; push: string; }; }
 export interface SerializedMergeResult { status: 'success' | 'conflict' | 'up-to-date'; branch: string; message: string; conflicts?: string[]; filesAccessed?: string[]; }
-export interface LogQueryOptions { maxCount?: number; branch?: string; since?: string; author?: string; search?: string; all?: boolean; }
+export interface LogQueryOptions { maxCount?: number; branch?: string; since?: string; author?: string; search?: string; all?: boolean; filePath?: string; }
 export interface SelectionRange { hunkIndex: number; startLine: number; endLine: number; }
 export type GitConflictOperation = 'merge' | 'rebase' | 'cherry-pick' | null;
 export interface SerializedConflictState { operation: GitConflictOperation; source: string; }

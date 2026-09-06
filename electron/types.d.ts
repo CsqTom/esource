@@ -125,6 +125,8 @@ interface LogQueryOptions {
   author?: string;
   search?: string;
   all?: boolean;
+  /** 文件路径过滤（pathspec，支持 * 通配），用于查看单个文件的变更历史 */
+  filePath?: string;
 }
 
 interface SelectionRange {

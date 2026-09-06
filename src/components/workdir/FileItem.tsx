@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { FileChangeItem } from '../../types';
-import { Plus, Undo2, RotateCcw, File, FilePlus, FileMinus, AlertTriangle, ExternalLink, FolderOpen, Trash2, Copy, Terminal, Ban } from 'lucide-react';
+import { Plus, Undo2, RotateCcw, File, FilePlus, FileMinus, AlertTriangle, ExternalLink, FolderOpen, Trash2, Copy, Terminal, Ban, History } from 'lucide-react';
 import { GitignoreDialog } from './GitignoreDialog';
 
 interface FileItemProps {
@@ -12,6 +12,7 @@ interface FileItemProps {
   onDiscard: () => void;
   repoPath: string;
   onRefreshStatus?: () => void;
+  onViewHistory?: () => void;
 }
 
 const statusConfig = {
@@ -37,6 +38,7 @@ export function FileItem({
   onDiscard,
   repoPath,
   onRefreshStatus,
+  onViewHistory,
 }: FileItemProps) {
   const config = statusConfig[file.status];
   const Icon = config.icon;
@@ -154,6 +156,11 @@ export function FileItem({
     const dirPath = getDirPath();
     window.electronAPI.shell.openTerminal(dirPath)
       .catch((err) => console.error('打开终端失败:', err?.message || err));
+  };
+
+  const handleViewHistory = () => {
+    closeMenu();
+    onViewHistory?.();
   };
 
   const handleGitignore = () => {
@@ -319,6 +326,15 @@ export function FileItem({
             <Terminal className="w-4 h-4 text-green-400" />
             终端
           </button>
+          {onViewHistory && (
+            <button
+              onClick={handleViewHistory}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors text-left"
+            >
+              <History className="w-4 h-4 text-purple-400" />
+              查看文件历史
+            </button>
+          )}
           {isUntracked && (
             <>
               <div className="border-t border-gray-700 my-1" />

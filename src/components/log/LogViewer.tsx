@@ -5,7 +5,7 @@ import { ResizableDivider } from '../common/ResizableDivider';
 import { CreateTagDialog } from '../tag/CreateTagDialog';
 import { ArrowLeft, Search, FileCode, User, Calendar, Clock, Copy, Hash, Tag, GitBranch, Loader2, ChevronDown, ChevronRight, Upload, AlertCircle, Check, X } from 'lucide-react';
 
-interface LogViewerProps { repoPath: string; onClose: () => void; focusHash?: string; }
+interface LogViewerProps { repoPath: string; onClose: () => void; focusHash?: string; focusFilePath?: string; }
 
 function formatDate(t: number): string {
   const d = new Date(t), n = new Date(), diff = n.getTime() - d.getTime();
@@ -255,11 +255,13 @@ function CommitRow({ commit, node, isSelected, maxCols, remoteRefs, onClick, onC
   );
 }
 
-export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
+export function LogViewer({ repoPath, onClose, focusHash, focusFilePath }: LogViewerProps) {
   const queryClient = useQueryClient();
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [pendingFocusHash, setPendingFocusHash] = useState<string | undefined>(focusHash);
-  const [searchQuery, setSearchQuery] = useState('');
+  // 搜索模式：message=按提交说明，file=按文件路径过滤（查看单个文件的变更历史）
+  const [searchMode, setSearchMode] = useState<'message' | 'file'>(focusFilePath ? 'file' : 'message');
+  const [searchQuery, setSearchQuery] = useState(focusFilePath || '');
   const [maxCount, setMaxCount] = useState(100);
   const [activeTab, setActiveTab] = useState<'current' | 'all'>('current');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -295,9 +297,17 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
   // 只有一个分支时强制锁定在当前分支视图
   const effectiveTab = showTabs ? activeTab : 'current';
 
+  // 文件模式下输入作为 pathspec 过滤（-- <path>，支持 * 通配）；说明模式下作为 --grep
+  const filePathFilter = searchMode === 'file' && searchQuery.trim() ? searchQuery.trim() : undefined;
+
   const { data: commits = [], isLoading } = useQuery({
-    queryKey: ['log', repoPath, maxCount, searchQuery, effectiveTab],
-    queryFn: () => window.electronAPI.log.list(repoPath, { maxCount, search: searchQuery || undefined, all: effectiveTab === 'all' }),
+    queryKey: ['log', repoPath, maxCount, searchQuery, effectiveTab, filePathFilter],
+    queryFn: () => window.electronAPI.log.list(repoPath, {
+      maxCount,
+      search: searchMode === 'message' && searchQuery ? searchQuery : undefined,
+      filePath: filePathFilter,
+      all: effectiveTab === 'all',
+    }),
     staleTime: 5_000,
   });
 
@@ -451,7 +461,12 @@ export function LogViewer({ repoPath, onClose, focusHash }: LogViewerProps) {
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-800/50">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="搜索提交信息..." className="w-full bg-gray-700 text-gray-100 rounded pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={searchMode === 'file' ? '输入文件名或路径过滤（如 remote.ts、*.py、src/）...' : '搜索提交信息...'} className="w-full bg-gray-700 text-gray-100 rounded pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500" />
+        </div>
+        {/* 搜索模式：提交说明 / 文件路径（切换时保留输入，按新模式立即生效） */}
+        <div className="flex items-center rounded overflow-hidden border border-gray-600 flex-shrink-0">
+          <button onClick={() => setSearchMode('message')} title="按提交说明搜索" className={`px-2 py-1.5 text-xs transition-colors ${searchMode === 'message' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>说明</button>
+          <button onClick={() => setSearchMode('file')} title="按文件路径过滤" className={`px-2 py-1.5 text-xs transition-colors ${searchMode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>文件</button>
         </div>
         <select value={maxCount} onChange={e => setMaxCount(Number(e.target.value))} className="bg-gray-700 text-gray-300 rounded px-2 py-1.5 text-sm border border-gray-600">
           <option value={50}>50</option><option value={100}>100</option><option value={200}>200</option><option value={500}>500</option>

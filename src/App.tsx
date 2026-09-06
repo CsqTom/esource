@@ -36,6 +36,8 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewMode>('diff');
   // 从标签页跳转到提交历史时，要定位/选中的提交 hash
   const [logFocusHash, setLogFocusHash] = useState<string | undefined>(undefined);
+  // 从文件右键"查看文件历史"进入提交历史时，预置的文件路径过滤
+  const [logFocusFilePath, setLogFocusFilePath] = useState<string | undefined>(undefined);
   // 当前选中文件是否为已暂存状态（同一 path 可能同时存在于 staged/unstaged，用此区分）
   const [selectedFileStaged, setSelectedFileStaged] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -493,7 +495,7 @@ export default function App() {
         }} onPush={() => setShowPushDialog(true)} onFetch={fetchMutation.mutate}
         onToggleBranch={() => setActiveView(activeView === 'branch' ? 'diff' : 'branch')}
         isPulling={pullMutation.isPending} isPushing={pushMutation.isPending} isFetching={fetchMutation.isPending}
-        activeView={activeView} onViewChange={setActiveView}
+        activeView={activeView} onViewChange={(v) => { if (v === 'log') setLogFocusFilePath(undefined); setActiveView(v); }}
         sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
       <div className="flex-1 flex overflow-hidden">
@@ -535,6 +537,7 @@ export default function App() {
                   onDiscardFile={handleDiscardFile}
                   repoPath={activeRepo.path}
                   onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })}
+                  onViewFileHistory={(path) => { setLogFocusFilePath(path); setActiveView('log'); }}
                 />
               )}
             </div>
@@ -563,6 +566,7 @@ export default function App() {
                   onDiscardFile={handleDiscardFile}
                   repoPath={activeRepo.path}
                   onRefreshStatus={() => queryClient.invalidateQueries({ queryKey: ['status', activeRepo?.path] })}
+                  onViewFileHistory={(path) => { setLogFocusFilePath(path); setActiveView('log'); }}
                 />
               )}
             </div>
@@ -636,7 +640,7 @@ export default function App() {
   function renderView() {
     switch (activeView) {
       case 'log':
-        return <LogViewer repoPath={activeRepo.path} onClose={() => setActiveView('diff')} focusHash={logFocusHash} />;
+        return <LogViewer repoPath={activeRepo.path} onClose={() => setActiveView('diff')} focusHash={logFocusHash} focusFilePath={logFocusFilePath} />;
       case 'tags':
         return <TagPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} currentBranch={activeRepo.currentBranch} onViewCommitHistory={(hash) => { setLogFocusHash(hash); setActiveView('log'); }} />;
       case 'stash': return <StashPanel repoPath={activeRepo.path} onClose={() => setActiveView('diff')} />;
