@@ -118,4 +118,22 @@ export function registerTagHandlers() {
       await getGit(repoPath).raw(["tag", "-d", name]);
     },
   );
+  // 从远程删除标签（git push --delete）；远程缺省时按跟踪分支/origin 解析，与 tag:push 一致
+  ipcMain.handle(
+    "tag:deleteRemote",
+    async (
+      _event,
+      repoPath: string,
+      name: string,
+      remote?: string,
+    ): Promise<void> => {
+      const git = getGit(repoPath);
+      let r = remote;
+      if (!r) {
+        const status = await git.status();
+        r = status.tracking ? status.tracking.split("/")[0] : "origin";
+      }
+      await git.raw(["push", r, "--delete", name]);
+    },
+  );
 }

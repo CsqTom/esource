@@ -40,6 +40,10 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
   const [error, setError] = useState<string | null>(null);
   // 推送标签的结果提示（成功自动消失，失败需手动关闭）
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // 删除已推送标签时的选择弹窗（仅本地 / 同时远程）
+  const [deleteTarget, setDeleteTarget] = useState<SerializedTag | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: tags = [], isLoading } = useQuery({
     queryKey: ['tags', repoPath],
@@ -84,10 +88,55 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
 
   const deleteTagMutation = useMutation({
     mutationFn: (name: string) => window.electronAPI.tag.delete(repoPath, name),
-    onSuccess: () => {
+    onSuccess: (_data, name) => {
+      setNotice({ type: 'success', text: `标签 "${name}" 已删除` });
       queryClient.invalidateQueries({ queryKey: ['tags', repoPath] });
     },
   });
+
+  // 已推送标签：先删远程再删本地（远程失败时本地标签保留，可重试）
+  const handleDeleteWithRemote = async () => {
+    if (!deleteTarget) return;
+    const name = deleteTarget.name;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await window.electronAPI.tag.deleteRemote(repoPath, name);
+      try {
+        await window.electronAPI.tag.delete(repoPath, name);
+      } catch (err: any) {
+        throw new Error(`已从远程删除，但本地删除失败：${String(err?.message || err)}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['tags', repoPath] });
+      queryClient.invalidateQueries({ queryKey: ['tagRemoteTags', repoPath] });
+      setNotice({ type: 'success', text: `标签 "${name}" 已从本地和远程删除` });
+      setDeleteTarget(null);
+    } catch (err: any) {
+      setDeleteError(String(err?.message || err || '远程删除失败'));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const handleDeleteClick = (tag: SerializedTag) => {
+    // 已推送（且远程状态已知）：弹窗让用户选择删除范围；未推送/状态未知：直接确认删本地
+    if (remoteTags?.remote && remoteTagSet.has(tag.name)) {
+      setDeleteError(null);
+      setDeleteTarget(tag);
+    } else if (confirm(`确定删除标签 "${tag.name}"？`)) {
+      deleteTagMutation.mutate(tag.name);
+    }
+  };
+
+  // 弹窗打开时 Escape 关闭
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDeleteTarget(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [deleteTarget]);
 
   // 推送标签到远程（远程名缺省时后端按跟踪分支/origin 解析）
   const pushTagMutation = useMutation({
@@ -329,11 +378,7 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
                   </button>
                 )}
                 <button
-                  onClick={() => {
-                    if (confirm(`确定删除标签 "${tag.name}"？`)) {
-                      deleteTagMutation.mutate(tag.name);
-                    }
-                  }}
+                  onClick={() => handleDeleteClick(tag)}
                   className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-900/30 rounded text-red-400 transition-all"
                   title="删除标签"
                 >
@@ -344,6 +389,64 @@ export function TagPanel({ repoPath, onClose, currentBranch, onViewCommitHistory
           </div>
         )}
       </div>
+
+      {/* 删除已推送标签：选择删除范围 */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50"
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}
+        >
+          <div className="bg-gray-800 border border-gray-600 rounded-xl shadow-2xl w-[420px]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <h3 className="flex items-center gap-2 text-sm font-medium text-gray-100">
+                <Trash2 className="w-4 h-4 text-red-400" />
+                删除标签
+              </h3>
+              <button onClick={() => setDeleteTarget(null)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-4 py-3 space-y-2.5">
+              <div className="text-sm text-gray-200">
+                确定删除标签 <span className="font-mono text-yellow-300">{deleteTarget.name}</span>？
+              </div>
+              <div className="flex items-start gap-1.5 text-xs text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded px-3 py-2">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  该标签已推送到远程 {remoteTags?.remote}。从远程删除会影响所有已拉取过该标签的同事（其本地副本不会被删除），且不可恢复。
+                </span>
+              </div>
+              {deleteError && (
+                <div className="text-xs text-red-400 break-all">{deleteError}</div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-700">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-1.5 text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors">
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  if (!deleteTarget) return;
+                  deleteTagMutation.mutate(deleteTarget.name);
+                  setDeleteTarget(null);
+                }}
+                disabled={deleteBusy}
+                className="px-4 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded transition-colors"
+              >
+                仅删除本地
+              </button>
+              <button
+                onClick={handleDeleteWithRemote}
+                disabled={deleteBusy}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded font-medium transition-colors"
+              >
+                {deleteBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                同时从远程删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

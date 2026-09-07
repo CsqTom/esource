@@ -225,6 +225,12 @@ const electronAPI = {
       ipcRenderer.invoke("tag:remoteTags", repoPath),
     delete: (repoPath: string, name: string): Promise<void> =>
       ipcRenderer.invoke("tag:delete", repoPath, name),
+    deleteRemote: (
+      repoPath: string,
+      name: string,
+      remote?: string,
+    ): Promise<void> =>
+      ipcRenderer.invoke("tag:deleteRemote", repoPath, name, remote),
   },
   git: {
     setCredential: (repoPath: string, remote: string, url: string, username: string, password: string): Promise<void> =>
