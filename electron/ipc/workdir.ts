@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
-import { getGit, serializeStatus, parseHunks, buildPatch, reverseHunk, parseDiff, buildPartialPatch, applyPatchFromFile, reversePatch, detectGitOperation, readMergeSource, parseConflictSegments } from "./utils";
+import { getGit, serializeStatus, parseHunks, buildPatch, reverseHunk, parseDiff, buildPartialPatch, applyPatchFromFile, reversePatch, applyPatchToContent, writeToIndex, detectGitOperation, readMergeSource, parseConflictSegments } from "./utils";
 import { getGitignorePath, ensureGitignore } from "./gitignore";
 
 export function registerWorkdirHandlers() {

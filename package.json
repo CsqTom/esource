@@ -1,6 +1,6 @@
 {
   "name": "esource",
-  "version": "2026.9.7-1.gd7d3bd3",
+  "version": "2026.9.7-2.g3f3c052",
   "description": "Git GUI desktop client - SourceTree alternative",
   "main": "dist-electron/main.js",
   "scripts": {

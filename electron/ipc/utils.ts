@@ -233,13 +233,97 @@ export async function applyPatchFromFile(
   try {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(patchFile, patch, "utf-8");
-    await git.raw(["apply", "--unidiff-zero", ...options, patchFile]);
+    // Windows 上 git apply 可能因文件锁而失败，重试 3 次
+    const MAX_RETRIES = 3;
+    let lastError: Error | null = null;
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        await git.raw(["apply", "--unidiff-zero", ...options, patchFile]);
+        return;
+      } catch (err) {
+        lastError = err as Error;
+        if (i < MAX_RETRIES - 1) {
+          // 等待文件锁释放
+          await new Promise(r => setTimeout(r, 200 * (i + 1)));
+        }
+      }
+    }
+    throw lastError;
   } finally {
     try {
       if (fs.existsSync(tmpDir))
         fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
   }
+}
+
+/**
+ * 将内容直接写入 Git 索引，绕过 git apply 的 unlink+rename 机制。
+ * 用于 Windows 上 .gitignore 等文件锁问题。
+ */
+export async function writeToIndex(
+  git: SimpleGit,
+  file: string,
+  content: string,
+): Promise<void> {
+  const tmpDir = path.join(
+    os.tmpdir(),
+    "esource-index-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+  );
+  const tmpFile = path.join(tmpDir, file);
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tmpFile, content, "utf-8");
+    const hash = (await git.raw(["hash-object", "-w", tmpFile])).trim();
+    if (!hash) throw new Error("git hash-object 返回空哈希");
+    await git.raw(["update-index", "--cacheinfo", "100644", hash, file]);
+  } finally {
+    try {
+      if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
+/**
+ * 将 unified diff patch 应用到字符串内容上（不涉及文件系统）。
+ * 用于 .gitignore 的 partial stage/unstage，绕过 git apply 的文件锁问题。
+ */
+export function applyPatchToContent(content: string, patch: string): string {
+  if (!patch) return content;
+  const lines = content.split("\n");
+  const patchLines = patch.split("\n");
+  // 补丁文本以换行结尾，split 会产生末尾空串——丢弃，避免被当作空上下文行混入 hunk
+  if (patchLines.length && patchLines[patchLines.length - 1] === "") patchLines.pop();
+  // 解析所有 hunk
+  const hunks: { oldStart: number; oldCount: number; newStart: number; opLines: string[] }[] = [];
+  let current: (typeof hunks)[0] | null = null;
+  for (const line of patchLines) {
+    const m = line.match(/^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
+    if (m) {
+      if (current) hunks.push(current);
+      current = {
+        oldStart: parseInt(m[1], 10),
+        oldCount: parseInt(m[2] || "1", 10),
+        newStart: parseInt(m[3], 10),
+        opLines: [],
+      };
+    } else if (current && (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ") || line === "")) {
+      current.opLines.push(line === "" ? " " : line);
+    }
+  }
+  if (current) hunks.push(current);
+  // 倒序应用 hunk，避免行号偏移
+  let result = [...lines];
+  for (let h = hunks.length - 1; h >= 0; h--) {
+    const hunk = hunks[h];
+    // oldCount=0（纯插入）时 oldStart 指向插入点之后的行号，
+    // 按新内容行号定位：插入索引为 newStart-1（buildPartialPatch 的行号约定）
+    const startIdx = hunk.oldCount === 0 ? hunk.newStart - 1 : hunk.oldStart - 1;
+    result.splice(startIdx, hunk.oldCount);
+    const newLines = hunk.opLines.filter((l) => !l.startsWith("-")).map((l) => l.slice(1));
+    result.splice(startIdx, 0, ...newLines);
+  }
+  return result.join("\n");
 }
 
 export function buildPartialPatch(
